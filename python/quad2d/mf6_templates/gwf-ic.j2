@@ -1,0 +1,12 @@
+begin options
+end options
+
+begin griddata
+  strt{% if strt_layered %} layered{% endif %}
+{%- set v = strt %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+end griddata

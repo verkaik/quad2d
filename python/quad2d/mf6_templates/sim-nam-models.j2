@@ -1,0 +1,8 @@
+{%- if parallel is defined -%}
+{% for mtype, mfname, name, part in models %}{{mtype}} {{mfname}} {{name}} {{part}}
+{% endfor -%}
+{%- else -%}
+{% for mtype, mfname, name in models %}{{mtype}} {{mfname}} {{name}}
+{% endfor -%}
+{% endif -%}
+

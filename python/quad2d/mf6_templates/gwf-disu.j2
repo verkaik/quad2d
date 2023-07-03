@@ -1,0 +1,98 @@
+begin options
+{% if length_units is defined %}  length_units {{length_units}}
+{% endif %}
+{%- if nogrb is defined %}  nogrb
+{% endif %}
+{%- if xorigin is defined %}  xorigin {{xorigin}}
+{% endif %}
+{%- if yorigin is defined %}  yorigin {{yorigin}}
+{% endif %}
+{%- if angrot is defined %}  angrot {{angrot}}
+{% endif -%}
+end options
+
+begin dimensions
+  nodes {{nodes}}
+  nja {{nja}}
+{%- if nvert is defined -%}  nvert {{nvert}}{%- endif%}
+end dimensions
+
+begin griddata
+  top
+{%- set v = top %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+  bot
+{%- set v = bot %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+  area
+{%- set v = area %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- if idomain is defined%}
+  idomain
+{%- set v = idomain %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- endif %}
+end griddata
+
+begin connectiondata
+  iac
+{%- set v = iac %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+  ja
+{%- set v = ja %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+  ihc
+{%- set v = ihc %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+  cl12
+{%- set v = cl12 %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+  hwva
+{%- set v = hwva %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- if angldegx is defined%}
+  angldegx
+{%- set v = angldegx %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- endif %}
+end connectiondata

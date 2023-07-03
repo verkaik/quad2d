@@ -1,0 +1,2 @@
+source:
+f:\USB500GB\backup-d_2\codes\develop\modflow6\trunk\utils_deltares\metis\metis-5.1.0_vs2017\metis-5.1.0\build\windows\libmetis\Release\

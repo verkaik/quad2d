@@ -1,0 +1,30 @@
+begin options
+{% if auxiliary is defined %}  auxiliary {{auxiliary}}
+{% endif -%}
+{%- if print_input is defined %}  print_input
+{% endif -%}
+{%- if print_flows is defined %}  print_flows
+{% endif -%}
+{%- if save_flows is defined %}  save_flows
+{% endif -%}
+{%- if cell_averaging is defined %}  cell_averaging {{cell_averaging}}
+{% endif -%}
+{%- if variablecv is defined %}  variablecv {%- if dewatered is defined -%}dewatered{%- endif -%}
+{% endif -%}
+{%- if newton is defined %}  newton
+{% endif -%}
+{%- if gnc is defined %}  gnc6 filein {{gnc}}
+{% endif -%}
+{%- if mvr is defined %}  mvr6 filein {{mvr}}
+{% endif -%}
+{%- if obs is defined %}  obs6 filein {{obs}}
+{% endif -%}
+end options
+
+begin dimensions
+  nexg {{nexg}}
+end dimensions
+
+begin exchangedata
+  open/close {{path}}
+end exchangedata

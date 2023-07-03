@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VisualStudioProject ProjectCreator="Intel Fortran" Keyword="Console Application" Version="11.0" ProjectIdGuid="{C7E12718-A0F5-4207-ADE0-601BB764DFDF}">
+	<Platforms>
+		<Platform Name="Win32"/>
+		<Platform Name="x64"/></Platforms>
+	<Configurations>
+		<Configuration Name="Debug|Win32">
+				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" DebugInformationFormat="debugEnabled" Optimization="optimizeDisabled" WarnInterfaces="true" Traceback="true" BoundsCheck="true" StackFrameCheck="true" RuntimeLibrary="rtMultiThreadedDebugDLL"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" GenerateDebugInformation="true" SubSystem="subSystemConsole"/>
+				<Tool Name="VFResourceCompilerTool"/>
+				<Tool Name="VFMidlTool" SuppressStartupBanner="true"/>
+				<Tool Name="VFCustomBuildTool"/>
+				<Tool Name="VFPreLinkEventTool"/>
+				<Tool Name="VFPreBuildEventTool"/>
+				<Tool Name="VFPostBuildEventTool"/>
+				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
+		<Configuration Name="Debug|x64">
+				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" DebugInformationFormat="debugEnabled" Optimization="optimizeDisabled" Preprocess="preprocessYes" PreprocessorDefinitions="IFORT" WarnInterfaces="true" Traceback="true" BoundsCheck="true" StackFrameCheck="true" RuntimeLibrary="rtMultiThreadedDebugDLL"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" AdditionalLibraryDirectories="..\..\src\metis-5.1.0\lib_vs2017\" GenerateDebugInformation="true" SubSystem="subSystemConsole" AdditionalDependencies="metis.lib"/>
+				<Tool Name="VFResourceCompilerTool"/>
+				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
+				<Tool Name="VFCustomBuildTool"/>
+				<Tool Name="VFPreLinkEventTool"/>
+				<Tool Name="VFPreBuildEventTool"/>
+				<Tool Name="VFPostBuildEventTool"/>
+				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
+		<Configuration Name="Release|Win32">
+				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" RuntimeLibrary="rtMultiThreadedDLL"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" SubSystem="subSystemConsole"/>
+				<Tool Name="VFResourceCompilerTool"/>
+				<Tool Name="VFMidlTool" SuppressStartupBanner="true"/>
+				<Tool Name="VFCustomBuildTool"/>
+				<Tool Name="VFPreLinkEventTool"/>
+				<Tool Name="VFPreBuildEventTool"/>
+				<Tool Name="VFPostBuildEventTool"/>
+				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
+		<Configuration Name="Release|x64">
+				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" Preprocess="preprocessYes" PreprocessorDefinitions="IFORT" RuntimeLibrary="rtMultiThreadedDLL"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" AdditionalLibraryDirectories="..\..\src\metis-5.1.0\lib_vs2017\" SubSystem="subSystemConsole" AdditionalDependencies="metis.lib"/>
+				<Tool Name="VFResourceCompilerTool"/>
+				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
+				<Tool Name="VFCustomBuildTool"/>
+				<Tool Name="VFPreLinkEventTool"/>
+				<Tool Name="VFPreBuildEventTool"/>
+				<Tool Name="VFPostBuildEventTool"/>
+				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration></Configurations>
+	<Files>
+		<Filter Name="Header Files" Filter="fi;fd;h;inc"/>
+		<Filter Name="Resource Files" Filter="rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe"/>
+		<Filter Name="Source Files" Filter="f90;for;f;fpp;ftn;def;odl;idl">
+		<Filter Name="Geom library">
+		<File RelativePath="..\..\src\_third_party\geomlib\geometry.f90"/></Filter>
+		<Filter Name="HDR library">
+		<File RelativePath="..\..\src\hdr_module\hdr_lib.f90"/></Filter>
+		<Filter Name="iMOD library">
+		<File RelativePath="..\..\src\imod_5.1\imod_idf_lib.f90"/>
+		<File RelativePath="..\..\src\imod_5.1\imod_idf_mod.f90"/>
+		<File RelativePath="..\..\src\imod_5.1\imod_idf_par.f90"/>
+		<File RelativePath="..\..\src\imod_5.1\imod_utl.f90"/>
+		<File RelativePath="..\..\src\imod_5.1\utl.f90">
+			<FileConfiguration Name="Release|x64">
+				<Tool Name="VFFortranCompilerTool" WarnInterfaces="false"/></FileConfiguration>
+			<FileConfiguration Name="Debug|x64">
+				<Tool Name="VFFortranCompilerTool" WarnInterfaces="false"/></FileConfiguration></File></Filter>
+		<Filter Name="KDtree library">
+		<File RelativePath="..\..\src\_third_party\kdtree2\kdtree2.f90"/></Filter>
+		<Filter Name="METIS library">
+		<File RelativePath="..\..\src\metis-5.1.0\src\metis_enum_5.1.0.f90"/>
+		<File RelativePath="..\..\src\metis-5.1.0\src\metis_module.f90"/></Filter>
+		<Filter Name="MF6_post library">
+		<File RelativePath="..\..\src\mf6_post_module\mf6_post_module.f90"/></Filter>
+		<Filter Name="MF6_wbd library">
+		<File RelativePath="..\..\src\mf6_write_bulk_data_module\mf6_write_bulk_data_module.f90"/></Filter>
+		<Filter Name="Multigrid library">
+		<File RelativePath="..\..\src\multigrid_module\multigrid_module.f90"/></Filter>
+		<Filter Name="VTK library">
+		<File RelativePath="..\..\src\vtk_module\vtk_lib.f90"/></Filter>
+		<Filter Name="VRT library">
+		<File RelativePath="..\..\src\vrt_module\vrt_lib.f90"/></Filter>
+		<Filter Name="UUID library">
+		<File RelativePath="..\..\src\_third_party\uuid-fortran-1.0.1\uuid_module.f90"/></Filter>
+		<Filter Name="Utility library">
+		<File RelativePath="..\..\src\utils_module\utils_mod.f90"/></Filter>
+		<File RelativePath="..\..\src\quad2d\quad2d.f90"/>
+		<File RelativePath="..\..\src\quad2d\quad2d_module.f90"/></Filter></Files>
+	<Globals/></VisualStudioProject>

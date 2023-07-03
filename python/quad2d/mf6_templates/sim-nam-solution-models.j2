@@ -1,0 +1,8 @@
+{% if coarse_grid_correction is defined -%}
+{% for mname, icgc in solutionmodels %}{{mname}} {{icgc}}
+{% endfor -%}
+{% else -%}
+{% for mname in solutionmodels %}{{mname}}
+{% endfor -%}
+{% endif -%}
+
