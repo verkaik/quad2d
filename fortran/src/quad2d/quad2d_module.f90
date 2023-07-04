@@ -9280,7 +9280,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), parameter :: n_sten = i_b
     !
     logical, parameter :: debug = .true.
-    character(len=MXSLEN), parameter :: debug_d = 'f:\models\lhm\LHM-Flex\pre-processing\debug\'
+    character(len=MXSLEN), parameter :: debug_d = 'f:\models\lhm\LHM-Flex\pre-processing\all_partition_test\full_metis\np02048_weight\debug\'
     integer(I4B), parameter :: n_try_max = 10
     real(R4B), parameter :: mv_mask = -12345. 
     !
@@ -9819,7 +9819,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       end if
     end do; end do; end do
     !
-    if (.false.) then
+    if (.true.) then
       do ig = ig_min, ig_max
         call this%get_grid(ig, .true., xg, ng, bbx) ! get grid at the finest level
         fp = trim(debug_d)//ta([this%gid])//'_f2c_grid_'//ta([ig])

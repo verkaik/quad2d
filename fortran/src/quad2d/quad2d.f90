@@ -4,7 +4,7 @@ module main_module
     errmsg, I4ZERO, I4MINONE, I8ZERO, I8ONE, DHALF, quicksort_r, bbi_intersect, node_to_icrl, &
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
-    get_unique, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
+    get_unique, grid_load_imbalance, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
   use vrt_module, only: tVrt
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -50,8 +50,9 @@ module main_module
   character(len=MXSLEN) :: mod_root_dir, xch_root_dir, mod_sub_dir_fields, xch_id_field
   character(len=MXSLEN) :: sel_field, sel_val, sel_npart, sel_nodes
   character(len=MXSLEN) :: chd_lid
-  character(len=MXSLEN) :: f_hiera_in, f_hiera_field
-  character(len=MXSLEN) :: gid_exclude
+  character(len=MXSLEN) :: f_hiera_in, f_hiera_field, f_weight
+  character(len=MXSLEN) :: gid_exclude, gid_separate
+  character(len=MXSLEN) :: csv_field, csv_val
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -311,7 +312,7 @@ subroutine quad_settings()
     !=========!
     call ini%get_val(sect, 'f_gid_in',  cv=f_gid_in)
     call ini%get_val(sect, 'f_gid_out',  cv=f_gid_out)
-  case('hiera_part')
+  case('hiera_grid_part')
     !=========!
     run_opt = 11
     !=========!
@@ -322,14 +323,32 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_hiera_field', cv=f_hiera_field)
     call ini%get_val(sect, 'f_out_csv',     cv=f_out_csv)
     call ini%get_val(sect, 'write_hiera',   l4v=write_hiera, l4v_def=.false.)
-  case('full_part')
+  case('full_grid_part')
     !=========!
     run_opt = 12
     !=========!
-    call ini%get_val(sect, 'f_gid_in',    cv=f_gid_in)
+    call ini%get_val(sect, 'f_gid_mask',  cv=f_gid_mask)
+    call ini%get_val(sect, 'f_weight',    cv=f_weight, cv_def='')
     call ini%get_val(sect, 'npart',       i4v=npart)
     call ini%get_val(sect, 'f_gid_out',   cv=f_gid_out)
     call ini%get_val(sect, 'gid_exclude', cv=gid_exclude, cv_def='')
+    call ini%get_val(sect, 'gid_separate', cv=gid_separate, cv_def='')
+  case('lump_grid_part')
+    !=========!
+    run_opt = 13
+    !=========!
+    call ini%get_val(sect, 'f_gid_in',    cv=f_gid_in)
+    call ini%get_val(sect, 'f_weight',    cv=f_weight, cv_def='')
+    call ini%get_val(sect, 'npart',       i4v=npart)
+    call ini%get_val(sect, 'f_gid_out',   cv=f_gid_out)
+  case('csv_add_field')
+    !=========!
+    run_opt = 14
+    !=========!
+    call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
+    call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
+    call ini%get_val(sect, 'csv_field', cv=csv_field)
+    call ini%get_val(sect, 'csv_val', cv=csv_val)
   case default
     call errmsg('Invalid run option: '//trim(sect))
   end select
@@ -572,18 +591,22 @@ subroutine quad_unique()
   return
 end subroutine quad_unique
 
-subroutine quad_full_part()
+subroutine quad_full_grid_part()
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------  
 ! -- local
   type(tMetis), pointer :: met => null()
+  integer(I4B) :: weight_mv, id, npart_loc, npart_tot, ip, ip_offset, nid
+  real(R4B) :: wtot, wloc
+  real(R8B) :: imbal
   integer(I4B), dimension(:), allocatable :: ids
+  integer(I4B), dimension(:,:), allocatable :: weight, weight_loc
 ! ------------------------------------------------------------------------------
   !
   allocate(hdrg_gid)
-  call hdrg_gid%read_full_grid(f_gid_in)
+  call hdrg_gid%read_full_grid(f_gid_mask)
   call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
   nc =  size(xid,1); nr = size(xid,2)
   !
@@ -608,17 +631,91 @@ subroutine quad_full_part()
     end do
   end if
   !
-  ! set to one
+  ! read the weights
+  if (len_trim(f_weight) > 0) then
+    allocate(hdrg)
+    call hdrg%read_full_grid(f_weight)
+    call hdrg%get_grid(xi4=weight, mvi4=weight_mv)
+    call hdrg%clean(); deallocate(hdrg); hdrg => null()
+  else
+    allocate(weight(nc,nr)); weight = 1
+  end if
+  !
+  ! filter for xid
   do ir = 1, nr; do ic = 1, nc
-     if (xid(ic,ir) > 0) xid(ic,ir) = 1
+   if (xid(ic,ir) > 0) then
+     if (weight(ic,ir) == 0) then
+       call logmsg('**** weight zero found! ****')
+     end if
+     weight(ic,ir) = max(1,weight(ic,ir))
+   else
+     weight(ic,ir) = 0
+    end if
   end do; end do
   !
-  allocate(met)
-  call met%init(xid, npart)
-  call met%set_opts(niter_in=500)
-  call met%recur()
-  call met%set_ids(xid)
-  call met%clean(); deallocate(met); met => null()
+  if (len_trim(gid_separate) > 0) then
+    wtot = real(sum(weight),R4B)
+    npart_tot = npart
+    call parse_line(s=gid_separate, i4a=ids, token_in=',')
+    ip_offset = 0
+    nid = size(ids)
+    do i = 1, nid + 1
+      allocate(weight_loc(nc,nr)); weight_loc = 0
+      wloc = 0
+      if (i <= nid) then
+        id = ids(i)
+        call logmsg('Applying METIS to ID='//ta([id])//'...')
+        do ir = 1, nr; do ic = 1, nc
+          if (xid(ic,ir) /= xid_mv) then
+            if (xid(ic,ir) == id) then
+              wloc = wloc + real(weight(ic,ir),R4B)
+              weight_loc(ic,ir) = weight(ic,ir)
+            end if
+          end if
+        end do; end do
+      else ! remainder
+        do ir = 1, nr; do ic = 1, nc
+          if (xid(ic,ir) /= xid_mv) then
+            if (xid(ic,ir) > 0) then
+              wloc = wloc + real(weight(ic,ir),R4B)
+              weight_loc(ic,ir) = weight(ic,ir)
+            end if
+          end if
+        end do; end do
+      end if
+      !
+      npart_loc = max(1,nint(npart*wloc/wtot))
+      npart_loc = min(npart_loc, npart_tot)
+      if (npart_loc > 1) then
+        allocate(met)
+        call met%init(weight_loc, npart_loc)
+        call met%set_opts(niter_in=100)
+        call met%recur()
+        call met%set_ids(weight_loc, id_offset_in=ip_offset)
+        call met%clean(); deallocate(met); met => null()
+        do ir = 1, nr; do ic = 1, nc
+          ip = weight_loc(ic,ir)
+          if (ip > 0) then
+            xid(ic,ir) = -ip
+          end if
+        end do; end do
+        ip_offset = ip_offset + npart_loc
+        npart_tot = max(0, npart_tot - npart_loc)
+        deallocate(weight_loc)
+      end if
+    end do
+    !
+    xid = abs(xid)
+    call grid_load_imbalance(xid, xid_mv, weight, imbal, npart_loc)
+    call logmsg('Overall load imbalance for '//ta([npart_loc])//' parts: '//ta([imbal]))
+  else
+    allocate(met)
+    call met%init(weight, npart)
+    call met%set_opts(niter_in=100)
+    call met%recur()
+    call met%set_ids(xid)
+    call met%clean(); deallocate(met); met => null()
+  end if
   
   ! write the new ids
   call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
@@ -631,9 +728,9 @@ subroutine quad_full_part()
   end if
   !
   return
-end subroutine quad_full_part
+end subroutine quad_full_grid_part
 
-subroutine quad_hiera_part()
+subroutine quad_hiera_grid_part()
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -736,7 +833,7 @@ subroutine quad_hiera_part()
           hmap(ih,lid) = id
         end if
       else
-        call errmsg('quad_hiera_part: could not sample point.')
+        call errmsg('quad_hiera_grid_part: could not sample point.')
       end if
     end do
     call hdrg_hid%clean(); deallocate(hdrg_hid); hdrg_hid => null()
@@ -744,7 +841,7 @@ subroutine quad_hiera_part()
   !
   ! check
   if (minval(hmap(1,:)) == 0) then
-    call errmsg('quad_hiera_part: not all areas are classified.')
+    call errmsg('quad_hiera_grid_part: not all areas are classified.')
   end if
   !
   ! set the levels
@@ -895,7 +992,7 @@ subroutine quad_hiera_part()
                         bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
                         bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
                         if (xid(ic,ir) /= q%gid) then
-                          call errmsg('quad_hiera_part: program error.')
+                          call errmsg('quad_hiera_grid_part: program error.')
                         else
                           xid(ic,ir) = gid_new
                         end if
@@ -924,7 +1021,7 @@ subroutine quad_hiera_part()
           ! set: apply lumped METIS to the other 
           area = areah(i) - area_metis
           if (area < R8ZERO) then 
-            call errmsg('quad_hiera_part: program error')
+            call errmsg('quad_hiera_grid_part: program error')
           end if
           np_lump = 0
           if (area > area_tgt) then
@@ -980,7 +1077,7 @@ subroutine quad_hiera_part()
                   lid = met%idmapinv(j)
                   q => xq%get_quad(lid)
                   if ((q%get_hlev(ih) /= id).or.(.not.q%get_flag(active=LDUM))) then
-                    call errmsg('quad_hiera_part: program error')
+                    call errmsg('quad_hiera_grid_part: program error')
                   end if
                   call q%set_flag(active=.false.)
                   call q%get_bb(child_bbi=bb)
@@ -1133,7 +1230,47 @@ subroutine quad_hiera_part()
 
   !
   return
-end subroutine quad_hiera_part
+end subroutine quad_hiera_grid_part
+
+subroutine quad_csv_add_field()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------  
+! -- local
+  type(tCSV), pointer    :: csv => null()
+! -- local
+  character(len=MXSLEN), dimension(:), allocatable :: hdr, hdr_add, val_add
+  integer(I4B) :: nc, nc_add, nc_max, ir, ic, jc
+! ------------------------------------------------------------------------------
+  allocate(csv)
+  call csv%read_hdr(f_in_csv, hdr)
+  nc = size(hdr)
+  !
+  call parse_line(csv_field, hdr_add, token_in=',')
+  call parse_line(csv_val,   val_add, token_in=',')
+  nc_add = size(hdr_add)
+  if (nc_add /= size(val_add)) then
+    call errmsg('Size csv_field differs from csv_val.')
+  end if
+  nc_max = nc + nc_add
+  !
+  call csv%read(f_in_csv, nc_max=nc_max)
+  !
+  ! add the new data
+  call csv%add_hdr(hdr_add)
+  do ir = 1, csv%nr
+    do jc = 1, nc_add
+      ic = nc + jc
+      call csv%set_val(ic=ic, ir=ir, cv=val_add(jc))
+    end do
+  end do
+  !
+  csv%file = trim(f_out_csv); call csv%write()
+  call csv%clean(); deallocate(csv)
+  !
+  return
+end subroutine quad_csv_add_field
 
 subroutine get_mask(xid, id, bb, mask)
 ! ******************************************************************************
@@ -2308,10 +2445,16 @@ program quad2d
     call quad_unique()
   end if
   if (run_opt == 11) then
-    call quad_hiera_part()
+    call quad_hiera_grid_part()
   end if
   if (run_opt == 12) then
-    call quad_full_part()
+    call quad_full_grid_part()
+  end if
+  if (run_opt == 13) then
+    !call quad_lump_grid_part()
+  end if
+  if (run_opt == 14) then
+    call quad_csv_add_field()
   end if
   !
   if (run_opt == 1) then
