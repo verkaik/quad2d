@@ -128,7 +128,7 @@ contains
       do ic = 1, nc
         if (load(ic,ir) > 0) then
           n = n + 1
-          this%vwgt(n) = load(ic,ir)
+          this%vwgt(n) = int(load(ic,ir),I8B)
         endif
       end do
     end do
