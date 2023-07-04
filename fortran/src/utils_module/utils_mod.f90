@@ -152,6 +152,7 @@ module utilsmod
     character(len=MXSLEN) :: file = ''
     integer(I4B) :: nc     = 0
     integer(I4B) :: nr     = 0
+    integer(I4B) :: nc_max = 0
     integer(I4B) :: nr_max = 0
     type(tCSV_hdr), dimension(:),   pointer :: hdr => null()
     type(tVal),     dimension(:,:), pointer :: val => null()
@@ -166,7 +167,9 @@ module utilsmod
     procedure :: exist_col     => tCSV_exist_col
     procedure :: add_key       => tCSV_add_key
     procedure :: get_key       => tCSV_get_key
+    procedure :: read_hdr      => tCSV_read_hdr
     procedure :: set_hdr       => tCSV_set_hdr
+    procedure :: add_hdr       => tCSV_add_hdr
     procedure :: set_val       => tCSV_set_val
     procedure :: get_val       => tCSV_get_val
     procedure :: get_column    => tCSV_get_column
@@ -477,6 +480,83 @@ module utilsmod
 
   contains
 
+  subroutine grid_load_imbalance(xi4, mvi4, wi4, imbal, nparts)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    integer(I4B), dimension(:,:), intent(in) :: xi4
+    integer(I4B)                , intent(in) :: mvi4
+    integer(I4B), dimension(:,:), intent(in), optional :: wi4
+    real(R8B),                    intent(out) :: imbal
+    integer(I4B),                 intent(out) :: nparts
+    ! -- local
+    integer(I4B) :: nc, nr, ic, ir, minid, maxid, id, ip, ngid, n, i
+    integer(I4B), dimension(:), allocatable :: ids
+    integer(I4B), dimension(:,:), allocatable :: wi4_loc
+    real(R8B), dimension(:), allocatable :: load, loadimbal
+    real(R8B) :: totload, tpwgts
+! ------------------------------------------------------------------------------
+    nc = size(xi4,1); nr = size(xi4,2)
+    !
+    minid = huge(minid); maxid = -huge(maxid)
+    do ir = 1, nr; do ic = 1, nc
+      id = xi4(ic,ir)
+      if (id /= mvi4) then
+        minid = min(minid,id); maxid = max(maxid,id)
+      end if
+    end do; end do
+    !
+    ngid = maxid - minid + 1
+    !
+    allocate(ids(maxid)); ids = 0
+    do ir = 1, nr; do ic = 1, nc
+      id = xi4(ic,ir)
+      if (id /= mvi4) then
+        ids(id - minid + 1) = 1
+      end if
+    end do; end do
+    !
+    nparts = sum(ids); tpwgts = R8ONE/real(nparts,R8B)
+    !
+    n = 0
+    do i = 1, ngid
+      if (ids(i) == 1) then
+        n = n + 1
+        ids(i) = n
+      end if
+    end do
+    !
+    allocate(load(nparts)); load = R8ZERO
+    if (present(wi4)) then
+      allocate(wi4_loc,source=wi4)
+    else
+      allocate(wi4_loc(nc,nr))
+      wi4_loc = 1
+    end if
+    !
+    do ir = 1, nr; do ic = 1, nc
+      id = xi4(ic,ir)
+      if (id /= mvi4) then
+        i = ids(id - minid + 1)
+        load(i) = load(i) + real(wi4_loc(ic,ir),R8B)
+      end if
+    end do; end do
+    !
+    totload = sum(load)
+    allocate(loadimbal, source=load)
+    do ip = 1, nparts
+      loadimbal(ip) = loadimbal(ip)/(totload*tpwgts)
+    end do
+    imbal = real(maxval(loadimbal),R4B)
+    !
+    ! clean up
+    deallocate(ids, wi4_loc, load, loadimbal)
+    !
+    return
+  end subroutine grid_load_imbalance
+  
   subroutine extrapolate_mfo(xr4, mvr4)
 ! ******************************************************************************
 !
@@ -2846,14 +2926,16 @@ module utilsmod
 ! ==============================================================================
 ! ==============================================================================
     
-  subroutine tCSV_init(this, file, hdr_keys, nr, nr_max, hdr_i_type)
+  subroutine tCSV_init(this, file, hdr_keys, nr, nc, nr_max, nc_max, hdr_i_type)
 ! ******************************************************************************  
     ! -- arguments
     class(tCSV) :: this
     character(len=*), intent(in) :: file
     character(len=*), dimension(:), intent(in) :: hdr_keys
     integer(I4B), intent(in), optional :: nr
+    integer(I4B), intent(in), optional :: nc
     integer(I4B), intent(in), optional :: nr_max
+    integer(I4B), intent(in), optional :: nc_max
     integer(I4B), dimension(:), intent(in), optional :: hdr_i_type
     ! -- locals
     type(tVal), pointer :: v => null()
@@ -2861,7 +2943,9 @@ module utilsmod
 ! ------------------------------------------------------------------------------
     !
     this%file = trim(file)
+    this%nc     = 0
     this%nr     = 0
+    this%nc_max = 0
     this%nr_max = 0
     !
     if (present(nr)) then
@@ -2873,16 +2957,30 @@ module utilsmod
       this%nr_max = this%nr
     end if
     !
+    if (present(nc)) then
+      this%nc = nc
+    else
+      this%nc = size(hdr_keys)
+    end if
+    if (present(nc_max)) then
+      this%nc_max = nc_max
+    else
+      this%nc_max = this%nc
+    end if
+    !
+    allocate(this%hdr(this%nc_max))
+    !
     if (present(hdr_i_type)) then
       call this%set_hdr(keys=hdr_keys, i_type=hdr_i_type)
     else
       call this%set_hdr(keys=hdr_keys)
     end if
     !
-    if (this%nr_max > 0) then
-      allocate(this%val(this%nc, this%nr_max))
+    !
+    if ((this%nr_max > 0).and.(this%nc_max > 0)) then
+      allocate(this%val(this%nc_max, this%nr_max))
       do ir = 1, this%nr_max
-        do ic = 1, this%nc
+        do ic = 1, this%nc_max
           v => this%val(ic,ir)
           call v%init()
         end do
@@ -2954,10 +3052,8 @@ module utilsmod
     type(tCSV_hdr), pointer :: hdr => null()
     integer(I4B) :: i, i_type_set
 ! ------------------------------------------------------------------------------
-    this%nc = size(keys)
-    allocate(this%hdr(this%nc))
     !
-    do i = 1, this%nc
+    do i = 1, size(keys)
       hdr => this%hdr(i)
       !
       if (present(i_type)) then
@@ -2971,22 +3067,73 @@ module utilsmod
     return
   end subroutine tCSV_set_hdr
   
-  subroutine tCSV_read(this, file, nr_max)
+  subroutine tCSV_add_hdr(this, keys, i_type)
+! ******************************************************************************  
+    ! -- arguments
+    class(tCSV) :: this
+    character(len=*), dimension(:), intent(in) :: keys
+    integer(I4B), dimension(:), intent(in), optional :: i_type
+    ! -- locals
+    type(tCSV_hdr), pointer :: hdr => null()
+    integer(I4B) :: i, j, i_type_set
+! ------------------------------------------------------------------------------
+    !
+    do j = 1, size(keys)
+      i = this%nc + j
+      if (i > size(this%hdr)) then
+        call errmsg('tCSV_add_hdr: column out of range.')
+      end if
+      !
+      hdr => this%hdr(i)
+      !
+      if (present(i_type)) then
+        i_type_set = i_type(j)
+      else
+        i_type_set = 0
+      end if
+      call hdr%set(keys(j), i_type_set)
+    end do
+    !
+    this%nc = this%nc + size(keys)
+    return
+  end subroutine tCSV_add_hdr
+  
+  subroutine tCSV_read_hdr(this, file, hdr_keys)
+    ! -- arguments
+    class(tCSV) :: this
+    character(len=*) :: file
+    character(len=MXSLEN), dimension(:), allocatable, intent(inout) :: hdr_keys
+    ! -- locals
+    character(len=MXSLENLONG) :: s
+    integer(I4B) :: iu
+! ------------------------------------------------------------------------------
+    !
+    call open_file(file, iu, 'r')
+    read(iu,'(a)') s; close(iu)
+    if (allocated(hdr_keys)) deallocate(hdr_keys)
+    call parse_line(s, hdr_keys, token_in=',')
+    !
+    return
+  end subroutine tCSV_read_hdr
+ 
+  subroutine tCSV_read(this, file, nr_max, nc_max)
 ! ******************************************************************************  
     ! -- arguments
     class(tCSV) :: this
     character(len=*) :: file
     integer(I4B), intent(in), optional :: nr_max
+    integer(I4B), intent(in), optional :: nc_max
     ! -- locals
     type(tVal), pointer :: v => null()
     character(len=MXSLENLONG) :: s
     character(len=MXSLEN), dimension(:), allocatable :: hdr_keys, sa
-    integer(I4B) :: iu, ios, nr, ir, ic, nr_max_loc
+    integer(I4B) :: iu, ios, nr, nc, ir, ic, nr_max_loc, nc_max_loc
 ! ------------------------------------------------------------------------------
     !
     call open_file(file, iu, 'r')
     read(iu,'(a)') s
     call parse_line(s, hdr_keys, token_in=',')
+    nc = size(hdr_keys)
     !
     nr = 0
     do while(.true.)
@@ -3006,7 +3153,12 @@ module utilsmod
     else
       nr_max_loc = nr
     end if
-    call this%init(file=file, hdr_keys=hdr_keys, nr=nr, nr_max=nr_max_loc)
+    if (present(nc_max)) then
+      nc_max_loc = max(nc, nc_max)
+    else
+      nc_max_loc = nc
+    end if
+    call this%init(file=file, hdr_keys=hdr_keys, nr=nr, nc=nc, nr_max=nr_max_loc, nc_max=nc_max)
     !
     ir = 0
     do while(.true.)
