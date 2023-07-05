@@ -392,25 +392,25 @@ contains
       allocate(tgt%ext_n); call this%ext_n%copy(tgt%ext_n)
     end if
     if (associated(this%ext_s)) then
-      allocate(tgt%ext_s); call this%ext_n%copy(tgt%ext_s)
+      allocate(tgt%ext_s); call this%ext_s%copy(tgt%ext_s)
     end if
     if (associated(this%ext_w)) then
-      allocate(tgt%ext_w); call this%ext_n%copy(tgt%ext_w)
+      allocate(tgt%ext_w); call this%ext_w%copy(tgt%ext_w)
     end if
     if (associated(this%ext_e)) then
-      allocate(tgt%ext_e); call this%ext_n%copy(tgt%ext_e)
+      allocate(tgt%ext_e); call this%ext_e%copy(tgt%ext_e)
     end if
     if (associated(this%ext_nw)) then
-      allocate(tgt%ext_nw); call this%ext_n%copy(tgt%ext_nw)
+      allocate(tgt%ext_nw); call this%ext_nw%copy(tgt%ext_nw)
     end if
     if (associated(this%ext_ne)) then
-      allocate(tgt%ext_ne); call this%ext_n%copy(tgt%ext_ne)
+      allocate(tgt%ext_ne); call this%ext_ne%copy(tgt%ext_ne)
     end if
     if (associated(this%ext_sw)) then
-      allocate(tgt%ext_sw); call this%ext_n%copy(tgt%ext_sw)
+      allocate(tgt%ext_sw); call this%ext_sw%copy(tgt%ext_sw)
     end if
     if (associated(this%ext_se)) then
-      allocate(tgt%ext_se); call this%ext_n%copy(tgt%ext_se)
+      allocate(tgt%ext_se); call this%ext_se%copy(tgt%ext_se)
     end if
     !
     return
