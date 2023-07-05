@@ -9819,7 +9819,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       end if
     end do; end do; end do
     !
-    if (.true.) then
+    if (.false.) then
       do ig = ig_min, ig_max
         call this%get_grid(ig, .true., xg, ng, bbx) ! get grid at the finest level
         fp = trim(debug_d)//ta([this%gid])//'_f2c_grid_'//ta([ig])
