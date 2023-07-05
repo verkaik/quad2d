@@ -24,4 +24,6 @@ begin dimensions
 end dimensions
 
 {% for i, v in periods.items() %}begin period {{i}}
-  open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}end period{% endfor %}
+  open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+end period
+{% endfor %}
