@@ -261,6 +261,9 @@ module quad2dModule
     integer(I4B) :: ibot
     integer(I4B) :: idist
     !
+    logical(I4B) :: lconst
+    real(R8B) :: r8const
+    !
     integer(I4B) :: ndat
     type(tData), dimension(:), pointer :: dat  => null()
     !
@@ -1799,6 +1802,20 @@ module quad2dModule
     end if
     if (dmdat%ilay < 0) then
       dmdat%i_assign = i_assign_first_layer
+    end if
+    !
+    dmdat%lconst = .false.
+    if ((dmdat%i_type == i_type_array).and.&
+        (dmdat%i_assign == i_assign_first_layer)) then
+      if (.not.parm%exist_col('fill_value')) then
+        call errmsg('Field fill_value not found.')
+      end if
+      call parm%get_val(ir=idat, ic=parm%get_col('fill_value'), cv=s)
+      if (len_trim(s) == 0) then
+        call errmsg('No value for field fill_value  found.')
+      end if
+      dmdat%lconst = .true.
+      read(s,*) dmdat%r8const
     end if
     !
     dmdat%ilay0_sfac = .false.
@@ -9986,6 +10003,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tVrtArray), pointer :: vrta => null()
     type(tVrt), pointer :: vrt => null()
     !
+    logical :: lconst
+    !
     integer(I4B), dimension(:), allocatable :: csv_ilay
     real(R8B), dimension(:), allocatable :: csv_x, csv_y
     real(R4B), dimension(:), allocatable :: csv_top, csv_bot, csv_v
@@ -9997,6 +10016,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     real(R4B), dimension(:,:), allocatable :: r4x, f2d
     real(R4B), dimension(:), allocatable :: f1d, fnod
     real(R4B) :: mvr4, top, bot, dist, gtop, gbot, dz, z1, z2, r4v, f, ftot
+    real(R4B) :: r4const
     !
     integer(I4B), dimension(:), allocatable :: nod1d, i4a, mapping
     integer(I4B), dimension(:,:), allocatable :: nod2d
@@ -10072,18 +10092,24 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                    if (n /= g%mvi4) then
                      top  = mg_top%grid(ig)%xr4(ic,ir)
                      bot  = mg_bot%grid(ig)%xr4(ic,ir)
-                     !
-                     if (top == bot) then
-                       ltopisbot = .true.
-                     else
-                       ltopisbot = .false.
-                     end if
-                     !
                      dist = mg_dist%grid(ig)%xr4(ic,ir)
                      !
                      if ((top  /= mg_top%grid(ig)%mvr4).and. &
                          (bot  /= mg_bot%grid(ig)%mvr4).and. &
                          (dist /= mg_dist%grid(ig)%mvr4)) then
+                       !
+                       ! make consistent
+                       if (bot > top) then
+                         call logmsg('Warning: inconsistent top/bot found, setting bot equal to top.')
+                         bot = top
+                         mg_bot%grid(ig)%xr4(ic,ir) = bot
+                       end if
+                       !
+                       if (top == bot) then
+                         ltopisbot = .true.
+                       else
+                         ltopisbot = .false.
+                       end if
                        !
                        gtop = disu%grid_mga_top%mga(jl)%grid(ig)%xr4(ic,ir)
                        gbot = disu%grid_mga_bot%mga(jl)%grid(ig)%xr4(ic,ir)
@@ -10102,8 +10128,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                          dz = top - bot
                          if (dz >= R4ZERO) then
                            f1d(n) = calc_frac(top, bot, top_nodes(n), gtop, gbot)
-                         else
-                           call logmsg('Warning: inconsistent top/bot found!')
+                         !else
+                         !  call logmsg('Warning: inconsistent top/bot found!')
                          end if
                        end if
                      end if
@@ -10242,7 +10268,52 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               f_asc=trim(this%mod_dir)//'\'//trim(dmdat%id)//'.asc')
           end select
         case(i_type_array)
-          call errmsg('Array output not supported for vrt input.')
+          if (dmdat%i_assign == i_assign_first_layer) then
+            !
+            allocate(mga_read)
+            call mga_read%init(dmdat%ndat)
+            !
+            ! step 1: read the data for *ALL* the ngrid levels
+            do i = 1, dmdat%ndat
+              dat => dmdat%dat(i); mg => mga_read%mga(i)
+              !
+              if (dat%i_type == i_vrt) then
+                call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
+                  i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4)
+              end if
+            end do
+            !
+            allocate(r8a(disu%nodes)); r8a = dmdat%r8const
+            !
+            do jl = 1, disu%nlay_act
+               mg => disu%grid_mga_nod%get_mg(jl)
+               do ig = 1, mg%ngrid
+                 g => mg%grid(ig)
+                 do ir = 1, g%nr; do ic = 1, g%nc
+                   n = g%xi4(ic,ir)
+                   if (n /= g%mvi4) then
+                     if (top_nodes(n) == 1) then
+                       r4v = mga_read%mga(1)%grid(ig)%xr4(ic,ir)
+                       r8a(n) = real(r4v,R8B)
+                     end if
+                   end if
+                 end do; end do
+               end do
+            end do
+            !
+            select case(dmdat%i_out_file_type)
+            case(i_binpos)
+              call wbd%write_array(id=dmdat%id, r8a=r8a)
+            case(i_bin)
+              call wbd%write_array(id=dmdat%id, r8a=r8a, &
+                f_bin=trim(this%mod_dir)//'\'//trim(dmdat%id)//'.bin')
+            case(i_asc)
+              call wbd%write_array(id=dmdat%id, r8a=r8a, &
+                f_asc=trim(this%mod_dir)//'\'//trim(dmdat%id)//'.asc')
+            end select
+          else
+            call errmsg('Array output not supported for vrt input.')
+          end if
         end select
       case(i_vrt_array)
         select case(dmdat%i_type)
@@ -10254,23 +10325,32 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           m = 0
           do jl = 1, disu%nlay_act
             il = disu%lay_act(jl)
-            vrt => vrta%get_vrt(il)
             !
             mg => disu%grid_mga_nod%get_mg(jl)
             !
             ! read grid in the original resolution and buffer
-            call vrt%read_extent_native_cs(bbx=bbx)
-            call vrt%buffer_data()
+            call vrta%check_constant(il, lconst, r4const)
+            if (.not.lconst) then
+              vrt => vrta%get_vrt(il)
+              call vrt%read_extent_native_cs(bbx=bbx)
+              call vrt%buffer_data()
+            end if
             !
             do ig = 1, mg%ngrid
               if (mg%grid_count(ig) > 0) then
                 g => mg%grid(ig)
-                call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
-                  i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+                if (.not.lconst) then
+                  call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
+                    i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+                end if
                 do ir = 1, g%nr; do ic = 1, g%nc
                   n = g%xi4(ic,ir)
                   if (n > 0) then
-                    r4v = r4x(ic,ir)
+                    if (.not.lconst) then
+                      r4v = r4x(ic,ir)
+                    else
+                      r4v = r4const
+                    end if
                     if (r4v == mvr4) then
                       call errmsg('tQuad_mf6_write_data: array.')
                     else
@@ -10283,7 +10363,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             end do
             !
             ! clean the vrt arrays
-            call vrt%clean_x()
+            if (.not.lconst) then
+              call vrt%clean_x()
+            end if
           end do
           !
           if (m /= disu%nodes) then
@@ -10421,23 +10503,32 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                     m = 0
                     do jl = 1, disu%nlay_act
                       il = disu%lay_act(jl)
-                      vrt => vrta%get_vrt(il)
                       !
                       mg => disu%grid_mga_nod%get_mg(jl)
                       !
                       ! read grid in the original resolution and buffer
-                      call vrt%read_extent_native_cs(bbx=bbx)
-                      call vrt%buffer_data()
+                      call vrta%check_constant(il, lconst, r4const)
+                      if (.not.lconst) then
+                        vrt => vrta%get_vrt(il)
+                        call vrt%read_extent_native_cs(bbx=bbx)
+                        call vrt%buffer_data()
+                      end if
                       !
                       do ig = 1, mg%ngrid
                         if (mg%grid_count(ig) > 0) then
                           g => mg%grid(ig)
-                          call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
-                            i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+                          if (.not.lconst) then
+                            call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
+                              i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+                          end if
                           do ir = 1, g%nr; do ic = 1, g%nc
                             n = g%xi4(ic,ir)
                             if (n > 0) then
-                              r4v = r4x(ic,ir)
+                              if (.not.lconst) then
+                                r4v = r4x(ic,ir)
+                              else
+                                r4v = r4const
+                              end if
                               if (r4v == mvr4) then
                                 call errmsg('tQuad_mf6_write_data: array.')
                               else
@@ -10450,7 +10541,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                       end do
                       !
                       ! clean the vrt arrays
-                      call vrt%clean_x()
+                      if (.not.lconst) then
+                        call vrt%clean_x()
+                      end if
                     end do
                     !
                     if (m /= disu%nodes) then
@@ -10581,20 +10674,18 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     real(R4B), intent(in)    :: b2
     real(R4B) :: f
     ! -- local
-    real(R4B) :: n, dz1, dz2
+    real(R4B) :: dz1, dz2
 ! ------------------------------------------------------------------------------
     !
     dz1 = t1 - b1
     !
-    n = 0
-    !
     if (b1 >= t2) then ! I
       f = R4ZERO
-      n = n + 1
+      return
     end if
     if (t1 <= b2) then ! II
       f = R4ZERO
-      n = n + 1
+      return
     end if
     if ((t1 >= t2).and.(b1 <= b2)) then ! III
       if (tn1 == 1) then
@@ -10603,11 +10694,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         dz2 = t2 - b2
       end if
       f = dz2/dz1
-      n = n + 1
+      return
     end if
     if ((t1 <= t2).and.(b1 >= b2)) then ! IV
       f = R4ONE
-      n = n + 1
+      return
     end if
     if ((t1 > t2).and.(b1 < t2).and.(b1 > b2)) then ! V
       if (tn1 == 1) then
@@ -10616,16 +10707,12 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         dz2 = t2 - b1
       end if
       f = dz2/dz1
-      n = n + 1
+      return
     end if
     if ((b1 < b2).and.(t1 < t2).and.(t1 > b2)) then ! VI
       dz2 = t1 - b2
       f = dz2/dz1
-      n = n + 1
-    end if
-    !
-    if (n /= 1) then
-      call errmsg('calc_frac: program error.')
+      return
     end if
     !
     return

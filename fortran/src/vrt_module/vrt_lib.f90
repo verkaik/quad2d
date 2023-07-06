@@ -1,10 +1,10 @@
 module vrt_module
   ! modules
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, &
-    i_i1, i_i2, i_i4, i_r4, i_r8, I4ZERO, R8ZERO, R8HALF, &
+    i_i1, i_i2, i_i4, i_r4, i_r8, I4ZERO, R4ZERO, R8ZERO, R8HALF, &
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
-    ta, swap_slash, point_in_bb, strip_ext, get_ext
+    ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata
 
   implicit none
@@ -118,11 +118,14 @@ module vrt_module
   type, public :: tVrtArray
     character(len=MXSLEN) :: f
     integer(I4B) :: n = 0
+    integer(I4B), dimension(:), allocatable :: iconst
+    real(R4B), dimension(:), allocatable :: r4const
     type(tVrt), dimension(:), pointer :: vrta => null()
   contains
-    procedure :: init    => tVrtArray_init
-    procedure :: clean   => tVrtArray_clean
-    procedure :: get_vrt => tVrtArray_get_vrt
+    procedure :: init           => tVrtArray_init
+    procedure :: clean          => tVrtArray_clean
+    procedure :: check_constant => tVrtArray_check_constant
+    procedure :: get_vrt        => tVrtArray_get_vrt
   end type tVrtArray
   !
   contains
@@ -181,9 +184,19 @@ module vrt_module
     end if
     !
     allocate(this%vrta(this%n))
+    allocate(this%iconst(this%n)); this%iconst = 0
+    allocate(this%r4const(this%n)); this%r4const = R4ZERO
+    
     do i = 1, this%n
-      vrt => this%vrta(i)
-      call vrt%init(sa(i))
+      ! check for constant
+      s = adjustl(change_case(sa(i), 'l'))
+      if (s(1:8) == 'constant') then
+        this%iconst(i) = 1
+        read(sa(i),*) s, this%r4const(i)
+      else
+        vrt => this%vrta(i)
+        call vrt%init(sa(i))
+      end if
     end do
     !
     return
@@ -207,9 +220,35 @@ module vrt_module
       end do
       deallocate(this%vrta); this%vrta => null()
     end if
+    if (allocated(this%iconst)) deallocate(this%iconst)
+    if (allocated(this%r4const)) deallocate(this%r4const)
     !
     return
   end subroutine tVrtArray_clean
+  
+  subroutine tVrtArray_check_constant(this, i, const, r4const)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tVrtArray) :: this
+    integer(I4B), intent(in) :: i
+    logical, intent(out) :: const
+    real(R4B), intent(out) :: r4const
+    ! -- local
+! ------------------------------------------------------------------------------
+    !
+    if (this%iconst(i) == 1) then
+      const   = .true.
+      r4const = this%r4const(i)
+    else
+      const   = .false.
+      r4const = R4ZERO
+    end if
+    !
+    return
+  end subroutine tVrtArray_check_constant
   
   function tVrtArray_get_vrt(this, i) result(vrt)
 ! ******************************************************************************
