@@ -667,10 +667,12 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
         'obl_keys': ['top','bot','area','idomain','iac','ja','ihc','cl12','hwva']}
     d_mf6_m['gwf-npf']  = {'ftype':'npf6' ,'fname':str(), \
         'obl_keys': ['icelltype','k','k33']}
-    d_mf6_m['gwf-sto']  = {'ftype':'sto6' ,'fname':str(), \
-        'obl_keys': ['iconvert','ss','sy']}
     d_mf6_m['gwf-ic']   = {'ftype':'ic6'  ,'fname':str(), \
         'obl_keys': ['strt']}
+    if 'gwf-sto' in d_mod_ini:
+        d_mf6_m['gwf-sto']  = {'ftype':'sto6' ,'fname':str(), \
+            'obl_keys': ['iconvert','ss','sy']}
+
     for module in d_mf6_m:
         log.info(f'Writing file for {module}...')
         template = mf6_template(module)
@@ -992,7 +994,7 @@ def pre():
 
 
     # get keys for supported templates
-    supp_templates = ['gwf-disu','gwf-npf','gwf-ic', 'gwf-oc', 'gwf-nam', \
+    supp_templates = ['gwf-disu', 'gwf-npf', 'gwf-sto','gwf-ic', 'gwf-oc', 'gwf-nam', \
                       'gwf-riv', 'gwf-drn', 'gwf-wel', 'gwf-ghb', 'gwf-chd', 'gwf-rch', \
                       'sim-nam', 'sim-nam-models', 'sim-nam-exchanges', \
                       'sim-nam-solution-models', 'sim-nam-solution-models-wrapper', 'sim-tdis',
