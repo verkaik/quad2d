@@ -367,7 +367,12 @@ def determine_periods(section, d_mod_ini, d_mod_csv):
             if len(set(file_list)) != 1:
                 merge = False
     else:
-        merge = False
+        merge = True
+        #
+        # merge in case there is only 1 input per stress period
+        for iper in dsp_ini.keys():
+            if (len(dsp_ini[iper]) > 1):
+                merge = False
     #
     if merge:
         d.append({})
@@ -662,6 +667,8 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
         'obl_keys': ['top','bot','area','idomain','iac','ja','ihc','cl12','hwva']}
     d_mf6_m['gwf-npf']  = {'ftype':'npf6' ,'fname':str(), \
         'obl_keys': ['icelltype','k','k33']}
+    d_mf6_m['gwf-sto']  = {'ftype':'sto6' ,'fname':str(), \
+        'obl_keys': ['iconvert','ss','sy']}
     d_mf6_m['gwf-ic']   = {'ftype':'ic6'  ,'fname':str(), \
         'obl_keys': ['strt']}
     for module in d_mf6_m:
@@ -986,7 +993,7 @@ def pre():
 
     # get keys for supported templates
     supp_templates = ['gwf-disu','gwf-npf','gwf-ic', 'gwf-oc', 'gwf-nam', \
-                      'gwf-riv','gwf-drn','gwf-wel', 'gwf-ghb', 'gwf-chd', 'gwf-rch', \
+                      'gwf-riv', 'gwf-drn', 'gwf-wel', 'gwf-ghb', 'gwf-chd', 'gwf-rch', \
                       'sim-nam', 'sim-nam-models', 'sim-nam-exchanges', \
                       'sim-nam-solution-models', 'sim-nam-solution-models-wrapper', 'sim-tdis',
                       'exg-gwfgwf','sln-ims']

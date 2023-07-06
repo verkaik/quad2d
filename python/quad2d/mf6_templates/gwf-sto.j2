@@ -6,13 +6,33 @@ begin options
 end options
 
 begin griddata
+{%- if iconvert is defined %}
   iconvert{% if iconvert_layered %} layered{% endif %}
-{% for x in iconvert %}    {{x}}
-{% endfor %}  ss{% if ss_layered %} layered{% endif %}
-{% for x in ss %}    {{x}}
-{% endfor %}  sy{% if sy_layered %} layered{% endif %}
-{% for x in sy %}    {{x}}
-{% endfor -%}
+{%- set v = iconvert %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- endif -%}
+{%- if ss is defined %}
+  ss{% if ss_layered %} layered{% endif %}
+{%- set v = ss %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- endif -%}
+{%- if sy is defined %}
+  sy{% if sy_layered %} layered{% endif %}
+{%- set v = sy %}
+{%- if v[0] == 0 %}
+    constant {{v[1]}}
+{%- else %}
+    open/close {{v[1]}}{% if v[0] > 1 %} (binary){% endif %}{% if v[0] > 2 %} {{v[2]}} {{v[3]}}{% endif %}
+{%- endif %}
+{%- endif %}
 end griddata
 
 {% for i, value in periods.items() %}begin period {{i}}
