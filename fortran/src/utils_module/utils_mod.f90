@@ -204,10 +204,11 @@ module utilsmod
 
   interface readidf
     module procedure :: readidf_i_r
-    module procedure :: readidf_r_r
+    !module procedure :: readidf_r_r
+    module procedure :: readidf_r4_r4
     module procedure :: readidf_r_d
   end interface
-  private :: readidf_i_r, readidf_r_d, readidf_r_r
+  private :: readidf_i_r, readidf_r_d, readidf_r_r, readidf_r4_r4
 
   interface writebin
     module procedure :: writebin_i
@@ -5941,6 +5942,45 @@ module utilsmod
     return
   end function count_dir_files
   
+  function get_dir_files(d) result(f)
+! ******************************************************************************
+    ! -- arguments
+    character(len=*), intent(inout) :: d
+    character(len=MXSLEN), dimension(:), allocatable :: f ! result
+    ! -- locals
+    character(len=MXSLEN) :: tf, s
+    integer(I4B) :: iu, ios, n, iact
+! ------------------------------------------------------------------------------
+    tf = 'tmp.txt'
+    call swap_slash(d)
+    if (os == 1) then ! windows
+      call system('dir /b/s '//trim(d)//' > '//trim(tf))
+    else
+      call errmsg('get_dir_files: linux not yet supported.')
+    end if
+    !
+    call open_file(tf, iu, 'r')
+    do iact = 1, 2
+      n = 0
+      do while(.true.)
+        read(unit=iu,fmt='(a)',iostat=ios) s
+        if (ios /= 0) exit
+        n = n + 1
+        if (iact == 2) then
+          f(n) = trim(adjustl(s))
+        end if
+      end do
+      if (iact == 1) then
+        allocate(f(n))
+        rewind(iu)
+      end if
+    end do
+    !
+    close(iu,status='delete')
+    !
+    return
+  end function get_dir_files
+  
   subroutine get_rel_up(f, n)
 ! ******************************************************************************
     ! -- arguments
@@ -7763,6 +7803,51 @@ module utilsmod
     return
   end subroutine readidf_r_r
 
+  subroutine readidf_r4_r4(f, x, ncol, nrow, xll, yll, cs, nodata)
+! ******************************************************************************
+    ! -- modules
+    use imod_idf
+    ! -- arguments
+    character(len=*), intent(in) :: f
+    real(R4B), dimension(:,:), allocatable :: x
+    integer(I4B), intent(out) :: ncol, nrow
+    real(R4B), intent(out) :: xll, yll, cs
+    real(R4B), intent(in) :: nodata
+    ! --- local
+    integer :: icol, irow
+    type(idfobj) :: idf
+! ------------------------------------------------------------------------------
+
+    if (allocated(x)) then
+      deallocate(x)
+    end if
+
+    call imod_utl_printtext('Reading '//trim(f),0)
+    if (.not.idfread(idf,f,1)) then
+      call imod_utl_printtext('Could not read '//trim(f),2)
+    end if
+    close(idf%iu)
+
+    ncol   = idf%ncol
+    nrow   = idf%nrow
+    xll    = idf%xmin
+    yll    = idf%ymin
+    cs     = idf%dx
+    allocate(x(ncol,nrow))
+    do irow = 1, nrow
+      do icol = 1, ncol
+        if (idf%x(icol,irow) /= idf%nodata) then
+          x(icol,irow) = idf%x(icol,irow)
+        else
+          x(icol,irow) = nodata
+        end if
+      end do
+    end do
+    call idfdeallocatex(idf)
+    !
+    return
+  end subroutine readidf_r4_r4
+  
   subroutine readidf_r_d(f, x, ncol, nrow, xll, yll, cs, nodata, idebug)
 ! ******************************************************************************
     ! -- modules
