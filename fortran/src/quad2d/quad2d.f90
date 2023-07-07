@@ -4,7 +4,7 @@ module main_module
     errmsg, I4ZERO, I4MINONE, I8ZERO, I8ONE, DHALF, quicksort_r, bbi_intersect, node_to_icrl, &
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
-    get_unique, grid_load_imbalance, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
+    get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
   use vrt_module, only: tVrt
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -53,6 +53,7 @@ module main_module
   character(len=MXSLEN) :: f_hiera_in, f_hiera_field, f_weight
   character(len=MXSLEN) :: gid_exclude, gid_separate
   character(len=MXSLEN) :: csv_field, csv_val
+  character(len=MXSLEN) :: f_in_idf
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -74,8 +75,11 @@ module main_module
   integer(I4B), dimension(:,:), allocatable :: xid, i4w2d, regun
   !
   real(R4B), dimension(:,:), allocatable :: r4w2d
+  !
+  real(R4B) :: r4mv
+  !
   real(R8B) :: x0, x1, y0, y1
-  real(R8B) :: refr8, xll, yll, yur,  cs_gid, cs_max
+  real(R8B) :: refr8, xll, yll, yur, cs_gid, cs_max
   !
   integer(I4B) :: kper_beg, kper_end, tile_nc, tile_nr
   character(len=MXSLEN) :: head_layers
@@ -349,6 +353,12 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
     call ini%get_val(sect, 'csv_field', cv=csv_field)
     call ini%get_val(sect, 'csv_val', cv=csv_val)
+  case('idf_to_flt')
+    !=========!
+    run_opt = 15
+    !=========!
+    call ini%get_val(sect, 'f_in_idf', cv=f_in_idf)
+    call ini%get_val(sect, 'mv', r4v=r4mv)
   case default
     call errmsg('Invalid run option: '//trim(sect))
   end select
@@ -1271,6 +1281,37 @@ subroutine quad_csv_add_field()
   !
   return
 end subroutine quad_csv_add_field
+
+subroutine quad_idf_to_flt()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------  
+! -- local
+  character(len=MXSLEN), dimension(:), allocatable :: f_idf_list
+  character(len=MXSLEN) :: f_idf, f_flt
+  integer(I4B) :: n, nc, nr, ic, ir, i
+  real(R4B), dimension(:,:), allocatable :: x
+  real(R4B) :: r4mv_read, r4xll, r4yll, r4cs
+! ------------------------------------------------------------------------------
+  !
+  f_idf_list = get_dir_files(f_in_idf)
+  n = size(f_idf_list)
+  !
+  call logmsg('Converting '//ta([n])//' IDF files...')
+  do i = 1, n
+    call logmsg('***** '//ta([i])//'/'//ta([n])//' *****')
+    f_idf = f_idf_list(i)
+    f_flt = strip_ext(f_idf)
+    call readidf( f_idf, x, nc, nr, r4xll, r4yll, r4cs, r4mv)
+    call writeflt(f_flt, x, nc, nr, r4xll, r4yll, r4cs, r4mv)
+  end do
+  !
+  ! clean up
+  deallocate(f_idf_list, x)
+  !
+  return
+end subroutine quad_idf_to_flt
 
 subroutine get_mask(xid, id, bb, mask)
 ! ******************************************************************************
@@ -2455,6 +2496,9 @@ program quad2d
   end if
   if (run_opt == 14) then
     call quad_csv_add_field()
+  end if
+  if (run_opt == 15) then
+    call quad_idf_to_flt()
   end if
   !
   if (run_opt == 1) then
