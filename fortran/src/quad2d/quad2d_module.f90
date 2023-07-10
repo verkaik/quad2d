@@ -10128,8 +10128,13 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                          dz = top - bot
                          if (dz >= R4ZERO) then
                            f1d(n) = calc_frac(top, bot, top_nodes(n), gtop, gbot)
-                         !else
-                         !  call logmsg('Warning: inconsistent top/bot found!')
+                           !
+                           ! overrule in case of top node
+                           if (top_nodes(n) == 1) then
+                             if (bot >= gtop) then
+                               f1d(n) = R4ONE
+                             end if
+                           end if
                          end if
                        end if
                      end if
