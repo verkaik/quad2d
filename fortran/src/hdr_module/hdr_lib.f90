@@ -724,7 +724,7 @@ subroutine hdrhdr_clean(this)
       !
       select case(k)
       case('bin_data')
-        read(sa1(2),*) this%f_bin
+        this%f_bin = sa1(2)
       end select
       if (ios /= 0) then
         exit
