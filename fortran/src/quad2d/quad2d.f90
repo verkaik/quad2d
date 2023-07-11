@@ -4,7 +4,8 @@ module main_module
     errmsg, I4ZERO, I4MINONE, I8ZERO, I8ONE, DHALF, quicksort_r, bbi_intersect, node_to_icrl, &
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
-    get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
+    get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
+    I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
   use vrt_module, only: tVrt
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -54,6 +55,7 @@ module main_module
   character(len=MXSLEN) :: gid_exclude, gid_separate
   character(len=MXSLEN) :: csv_field, csv_val
   character(len=MXSLEN) :: f_in_idf
+  character(len=MXSLEN) :: d_log
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -234,6 +236,7 @@ subroutine quad_settings()
     run_opt = 6
     !=========!
     call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_log',   cv=d_log, cv_def='')
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
@@ -1914,7 +1917,9 @@ subroutine quad_mf6_data_write()
 !
 !    SPECIFICATIONS:
   ! -- local
-  integer(I4B) :: lid0, lid1, n_act
+  character(len=MXSLEN) :: d, f_log
+  logical :: writelog
+  integer(I4B) :: lid0, lid1, n_act, iu
 ! ------------------------------------------------------------------------------
   ! set the ranges
   if (lid_min > 0) then
@@ -1936,7 +1941,15 @@ subroutine quad_mf6_data_write()
   do lid = lid0, lid1
     if (q%get_flag(active=LDUM)) n_act = n_act + 1
   end do
-  
+  !
+  if (len_trim(d_log) > 0) then
+    writelog = .true.
+    d = trim(d_log)
+    call create_dir(d, .true.)
+  else
+    writelog = .false.
+  end if
+  !
   n = 0
   do lid = lid0, lid1
     q => xq%get_quad(lid)
@@ -1955,7 +1968,12 @@ subroutine quad_mf6_data_write()
       call q%mf6_write_data()
       n = n + 1
       call logmsg('***** '//ta([100.*real(n,R4B)/n_act],'(f6.2)')//' % *****')
+      if (writelog) then
+        f_log = trim(d)//'done_lid_'//ta([lid],'(i10.10)')//'.txt'
+        call open_file(f_log, iu, 'w'); close(iu)
+      end if
     end if
+    !
   end do
 !
     !if (.false.) then
