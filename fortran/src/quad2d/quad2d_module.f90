@@ -5406,6 +5406,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tNbrIntf), pointer :: nintf => null()
     type(tMf6Wbd), pointer :: wbd => null()
     !
+    character(len=1) :: slash
     character(len=MXSLEN) :: d, f, m1_id, m2_id, id
     integer(I4B) :: lid, inbr
 ! ------------------------------------------------------------------------------
@@ -5417,6 +5418,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     allocate(wbd)
     call wbd%init(f_out_csv)
     !
+    slash = get_slash()
     do lid = 1, this%n
       q_m1 => this%get_quad(lid)
       if (q_m1%get_flag(active=LDUM)) then
@@ -5428,7 +5430,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             call q_m1%get_prop_csv(key=xch_id_field, cv=m1_id)
             call q_m2%get_prop_csv(key=xch_id_field, cv=m2_id)
             id = trim(m1_id)//'-'//trim(m2_id)
-            f = trim(root_dir)//'\exchangedata_'//trim(id)//'.asc'
+            f = trim(root_dir)//slash//'exchangedata_'//trim(id)//'.asc'
             call nintf%xch%write(f, id, wbd)
           end if
         end do
