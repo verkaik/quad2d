@@ -294,6 +294,8 @@ contains
       if (present(i8a)) write(this%iu_binpos) i8a_wk
       if (present(r4a)) write(this%iu_binpos) r4a_wk
       if (present(r8a)) write(this%iu_binpos) r8a_wk
+      close(this%iu_binpos)
+      call open_file(this%f_binpos, this%iu_binpos, 'w', .true., 'append')
       inquire(this%iu_binpos, pos=binpos_end)
       close(this%iu_binpos)
       !
@@ -694,6 +696,8 @@ contains
       inquire(this%iu_binpos, pos=binpos_beg)
       write(this%iu_binpos) (((i4x_wk(j,i), j = 1, ni4a), &
         (r8x_wk(j,i), j = 1, nr8a)), i = 1, n)
+      close(this%iu_binpos)
+      call open_file(this%f_binpos, this%iu_binpos, 'w', .true., 'append')
       inquire(this%iu_binpos, pos=binpos_end)
       close(this%iu_binpos)
       !
