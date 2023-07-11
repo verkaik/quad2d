@@ -4,7 +4,7 @@ module main_module
     errmsg, I4ZERO, I4MINONE, I8ZERO, I8ONE, DHALF, quicksort_r, bbi_intersect, node_to_icrl, &
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
-    get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
+    get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
   use vrt_module, only: tVrt
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -2010,6 +2010,7 @@ subroutine quad_grid_gen()
   !
   integer(I4B), parameter :: perc_intv = 10
   !
+  character(len=1) :: slash
   character(len=MXSLEN) :: f_csv_dat, s_lay_act
   integer(I4B), dimension(:), allocatable :: lay, lid_map, lid_arr
   integer(I4B) :: ncell_tot, ncell, nja, nlay_act, ngrid, write_csv_delta
@@ -2066,6 +2067,7 @@ subroutine quad_grid_gen()
   end do
   !
   n = 0
+  slash = get_slash()
   do lid = 1, xq%n
     q => xq%get_quad(lid)
     !
@@ -2079,7 +2081,7 @@ subroutine quad_grid_gen()
       !
       lskip = .false.
       if ((lid >= lid0).and.(lid <= lid1)) then
-        f_csv_dat = trim(q%mod_dir)//'\dat.csv'
+        f_csv_dat = trim(q%mod_dir)//slash//'dat.csv'
         call q%grid_gen(f_csv_dat, lwrite_disu, lwrite_asc, &
           ncell, nja, nlay_act, lay, ngrid, lskip)
         s_lay_act = ta(lay,sep_in=';')
