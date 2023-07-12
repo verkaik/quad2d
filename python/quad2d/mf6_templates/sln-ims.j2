@@ -27,6 +27,8 @@ begin nonlinear
 {%- if backtracking_reduction_factor is defined %}  backtracking_reduction_factor {{backtracking_reduction_factor}}
 {% endif %}
 {%- if backtracking_residual_limit is defined %}  backtracking_residual_limit {{backtracking_residual_limit}}
+{% endif %}
+{%- if linear_solver_bjpc is defined %}  linear_solver_bjpc
 {% endif -%}
 end nonlinear
 
@@ -46,5 +48,7 @@ begin linear
 {%- if scaling_method is defined %}  scaling_method {{scaling_method}}
 {% endif %}
 {%- if reordering_method is defined %}  reordering_method {{reordering_method}}
+{% endif %}
+{%- if cgc_solver is defined %}  cgc_solver {{cgc_solver}}
 {% endif -%}
 end linear

@@ -54,7 +54,7 @@ clp.add_argument('-mfsim', '--mfsim', type=str,
                 default=r'mfsim.nam',
                 help='MODFLOW 6 simulation name file.')
 clp.add_argument('-templates', '--templates', type=str, \
-                default=r'.\mf6_templates/', \
+                default='./mf6_templates/', \
                 help='Template directory for MODFLOW 6 files.')
 clp.add_argument('-pre', '--pre', action='store_true', default=False, \
                 help='Flag for pre-processing MODFLOW 6')
@@ -546,6 +546,10 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
         for k, v in d_ini[section].items():
             d[k] = v
         d.pop('fname')
+        if cgc:
+            d['cgc_solver'] = get_cla_key('cgc_solver')
+            if not parallel:
+                d['linear_solver_bjpc'] = True
         template = mf6_template(tp_name)
         template.set(d, valid_keys=d_template[tp_name])
         template.render(fname)
@@ -556,16 +560,19 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
     d_smo = {}
     if not serial_decoupled:
         tp_name = 'sim-nam-solution-models'
-        if cgc:
-            d['coarse_grid_correction'] = True
         for mt in d_mf6_mod:
             fname =  Path(f_base + '.smo.'+ mt +'.asc')
             d_smo[mt] = fname
             d = {}
             d['solutionmodels'] = []
+            if cgc:
+                d['coarse_grid_correction'] = True
             i_cgc = 0
             for mod in d_mf6_mod[mt]['models']:
                 id = mod[2]
+                if parallel:
+                    i_cgc = mod[3]
+                else:
                 i_cgc += 1
                 if cgc:
                     d['solutionmodels'].append((id, i_cgc))
@@ -606,6 +613,7 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
     nrproc):
 #############################################################################
     serial_decoupled = get_cla_key('serial_decoupled')
+    cgc              = get_cla_key('cgc')
     section = 'sim-nam'
     d = {}
     for k, v in d_ini[section].items():
@@ -613,6 +621,11 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
     d.pop('fname')
     d['tdis6'] = fname_tdis
     #
+    if cgc:
+        ims6_label = 'ims6_cgc'
+    else:
+        ims6_label = 'ims6'
+
     mfsim_list = []
     if not serial_decoupled:
         if nrproc > 1:
@@ -624,7 +637,7 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
             d['exchanges'] = fname_xch
         lst = []
         for mt in d_mf6_mod:
-            lst.append(('ims6', d_ims[mt], d_smw[mt]))
+            lst.append((ims6_label, d_ims[mt], d_smw[mt]))
         d['solutiongroups'] = []
         d['solutiongroups'].append(lst)
         template = mf6_template(section)
@@ -639,7 +652,7 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
                 d['solutiongroups'] = []
                 p = Path(fname_nam)
                 fname = p.parents[0].joinpath(p.stem + '.' + str(id) + '.nam')
-                lst = [('ims6', d_ims[mt], [id])]
+                lst = [(ims6_label, d_ims[mt], [id])]
                 d['solutiongroups'].append(lst)
                 template = mf6_template(section)
                 template.set(d, valid_keys=d_template[section])
@@ -892,7 +905,7 @@ def write_model(id, d_ini, d_props, d_mod_ini_list, d_template):
 #############################################################################
     log.info(f'Writing MODFLOW 6 model files for id={id}...')
     #
-    f_csv_dat = get_key(d_props, str(id), 'csv_dat')
+    f_csv_dat = get_key(d_props, str(id), 'csv_dat').replace('\\',os.sep)
     nodes     = int(get_key(d_props, str(id), 'nodes'))
     nja       = int(get_key(d_props, str(id), 'nja'))
     #
@@ -1001,7 +1014,7 @@ def pre():
                       'exg-gwfgwf','sln-ims']
     d_template = {}
     for section in supp_templates:
-        log.info(f'{section}')
+        # log.info(f'{section}')
         template = mf6_template(section)
         d_template[section] = template.get_variables()
 
