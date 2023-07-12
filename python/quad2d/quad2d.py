@@ -573,7 +573,7 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
                 if parallel:
                     i_cgc = mod[3]
                 else:
-                i_cgc += 1
+                    i_cgc += 1
                 if cgc:
                     d['solutionmodels'].append((id, i_cgc))
                 else:
