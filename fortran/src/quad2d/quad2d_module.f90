@@ -383,6 +383,7 @@ module quad2dModule
     !
     type(tProps), pointer :: props => null() 
     integer(I4B) :: area ! cell count
+    real(R8B)    :: weight
     real(R8B)    :: bb_ratio
     real(R8B)    :: bb_xm
     real(R8B)    :: bb_ym
@@ -7738,6 +7739,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     this%n_child     = I4ZERO
     this%props       => null()
     this%area        = I4ZERO
+    this%weight      = R8ZERO
     this%bb_ratio    = R8ZERO
     this%bb_xm       = R8ZERO
     this%bb_ym       = R8ZERO
@@ -8053,7 +8055,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end function tQuad_get_hlev
   
-  subroutine tQuad_calc_prop(this, itile, tile_bbx, mask)
+  subroutine tQuad_calc_prop(this, itile, tile_bbx, mask, weight)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -8063,6 +8065,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(in), optional :: itile
     type(tBbx), intent(in), optional :: tile_bbx
     integer(I4B), dimension(:,:), intent(in), optional :: mask
+    integer(I4B), dimension(:,:), intent(in), optional :: weight
     ! -- local
     type(kdtree2), pointer :: tree
     type(kdtree2_result), dimension(:), allocatable :: res
@@ -8072,7 +8075,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B) :: nc, nr, ir, ic, irm, icm,  mc, mr, irm0, irm1, icm0, icm1
     integer(I4B) :: i, n, n_gid, n0, n1
     integer(I4B), dimension(:,:), allocatable :: xi4
-    real(R8B) :: xm, ym
+    real(R8B) :: xm, ym, w
     real(R8B), dimension(:,:), allocatable :: xy
 ! ------------------------------------------------------------------------------
     !
@@ -8097,6 +8100,17 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         if (xi4(ic,ir) == 1) n_gid = n_gid + 1
       end do
     end do
+    !
+    this%weight = R8ZERO
+    if (present(weight)) then
+      do ir = 1, bbi%nrow
+        do ic = 1, bbi%ncol
+          if (xi4(ic,ir) == 1) then
+            this%weight = this%weight + real(weight(ic,ir),R8B)
+          end if
+        end do
+      end do
+    end if
     !
     if (n_gid == 0) then
       fp = 'f:\models\pcr-globwb-30arcsec\hydrobasins\lev12_tight\gid_'//ta([this%gid])
@@ -8340,7 +8354,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
   end subroutine tQuad_set_prop_csv
     
   subroutine tQuad_get_prop(this, lid, gid, lid_prent, gid_prent, &
-    area, bb_ratio, xm, ym, cs_max, itile_bb_xm, i_graph, i_prop)
+    area, weight, bb_ratio, xm, ym, cs_max, itile_bb_xm, i_graph, i_prop)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -8353,6 +8367,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(out), optional :: lid_prent
     integer(I4B), intent(out), optional :: gid_prent
     integer(I4B), intent(out), optional :: area
+    real(R8B),    intent(out), optional :: weight
     real(R8B),    intent(out), optional :: bb_ratio
     real(R8B),    intent(out), optional :: xm
     real(R8B),    intent(out), optional :: ym
@@ -8367,6 +8382,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (present(lid_prent))   lid_prent   = this%lid_prent
     if (present(gid_prent))   gid_prent   = this%gid_prent
     if (present(area))        area        = this%area
+    if (present(weight))      weight      = this%weight
     if (present(bb_ratio))    bb_ratio    = this%bb_ratio
     if (present(xm))          xm          = this%bb_xm
     if (present(ym))          ym          = this%bb_ym
@@ -8933,7 +8949,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     else
       ilev0 = nlev; ilev1 = mlev
       ngrid = nlev-mlev+1
-      nlev_out = nlev_in
+      ! nlev_out = nlev_in
+      nlev_out = ngrid !14-07-23
     end if
     !
     ! contruct the grids, write and count
@@ -9371,6 +9388,17 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       stop
     end if
     !
+    ! coarse --> fine
+    if (cs_gid >= cs_min_tgt) then ! changed 14-07-23
+      lc2f = .true.
+      max_nlev_c2f = get_number_of_levels(cs_gid, cs_min_tgt)
+      call this%set_cgrid(max_nlev_c2f, nlev_c2f)
+      cs_min_tgt = cs_gid*2**(real(-nlev_c2f+1,R8B))
+    else
+      lc2f = .false.
+      nlev_c2f = 0
+    end if
+    !
     ! read the layer models at the FINEST resolution cs_min_tgt or cs_gid
     lay_mod => this%lay_mods%lay_mods(ilm)
     bbx_read = bbx_gid
@@ -9395,16 +9423,6 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         xr4=zp(:,:,il), mvr4=mv_mask)
     end do
     !
-    ! coarse --> fine
-    if (cs_gid >= cs_min_tgt) then
-      lc2f = .true.
-      max_nlev_c2f = get_number_of_levels(cs_gid, cs_min_tgt)
-      call this%set_cgrid(max_nlev_c2f, nlev_c2f)
-    else
-      lc2f = .false.
-      nlev_c2f = 0
-    end if
-    !
     ! fine --> coarse
 !    if (cs_gid <= cs_max_tgt) then ! changed 6-6-23
     if (cs_gid < cs_max_tgt) then
@@ -9423,13 +9441,20 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     else
       if (lc2f) then
         ig_max  = nlev_c2f - 1 ! finest grid
-        ig_min = ig_max
-        do ig = 1, ig_max
-          cs = cs_gid*2**(real(-ig,R8B))
+        !ig_min = ig_max
+        !do ig = 1, ig_max 
+        !  cs = cs_gid*2**(real(-ig,R8B))
+        !  if (cs_max_tgt == cs) then
+        !    ig_min = ig; exit
+        !  end if
+        !end do
+        do ig = ig_max, 0, -1 ! changed 14-7-23
+          cs = cs_gid/2**(real(ig,R8B))
           if (cs_max_tgt == cs) then
             ig_min = ig; exit
           end if
         end do
+        !
         ngrid = abs(ig_max) + 1
       else
         ig_min = nlev_f2c + 1 ! coarsest grid
