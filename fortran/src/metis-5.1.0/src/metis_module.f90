@@ -191,7 +191,7 @@ contains
      
   end subroutine metis_init
   
-  subroutine metis_init_lump(this, ids, nparts, verbose)
+  subroutine metis_init_lump(this, ids, nparts, verbose, weight)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -202,7 +202,9 @@ contains
     integer(I4B), dimension(:,:), intent(in) :: ids
     integer(I4B), intent(in) :: nparts
     logical, intent(in), optional :: verbose
+    integer(I4B), dimension(:,:), intent(in), optional :: weight
     ! -- local
+    logical :: lweight
     integer(I4B) :: nc, nr, ic, ir, i, j, id, maxid, nja, n, ir0, ir1, ic0, ic1
     integer(I4B) :: icw, ice, irn, irs, ivalw, ivale, ivaln, ivals
     integer(I4B), dimension(:), allocatable :: iwrk
@@ -210,7 +212,12 @@ contains
     character(len=MXSLEN) :: s
 ! ------------------------------------------------------------------------------
     lump = .true.
-    
+    if (present(weight)) then
+      lweight = .true.
+    else
+      lweight = .false.
+    end if
+    !
     allocate(this%nparts)
     this%nparts = nparts
     !
@@ -305,7 +312,11 @@ contains
         do ic = ic0, ic1
           if (abs(ids(ic,ir)) == id) then
             j = this%idmap(id)
-            this%vwgt(j) = this%vwgt(j) + 1
+            if (lweight) then
+              this%vwgt(j) = this%vwgt(j) + weight(ic,ir)
+            else
+              this%vwgt(j) = this%vwgt(j) + 1
+            end if
             irn = max(ir-1, 1); irs = min(ir+1, nr)
             icw = max(ic-1, 1); ice = min(ic+1, nc)
             ivaln = abs(ids(ic,irn)); ivals = abs(ids(ic,irs))
@@ -487,7 +498,7 @@ contains
    end if
   end subroutine metis_set_opts
   
-  subroutine metis_recursive(this, verbose)
+  subroutine metis_recursive(this, verbose, ok)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -496,6 +507,7 @@ contains
     ! -- dummy
     class(tMetis) :: this
     logical, intent(in), optional :: verbose
+    logical, intent(out), optional :: ok
     ! -- local
     character(len=MXSLEN) :: s
     logical :: lempty
@@ -509,11 +521,22 @@ contains
       write(*,'(a)') 'Begin calling METIS using recursive bisection for '// &
         trim(adjustl(s))//' parts...'
     end if
+    ! METIS_OPTION_CTYPE, METIS_OPTION_IPTYPE, METIS_OPTION_RTYPE, 
+    ! METIS_OPTION_NO2HOP, METIS_OPTION_NCUTS, METIS_OPTION_NITER, 
+    ! METIS_OPTION_SEED, METIS_OPTION_UFACTOR, METIS_OPTION_NUMBERING,
+    ! METIS_OPTION_DBGLVL
     call METIS_PARTGRAPHRECURSIVE(this%nvtxs, this%ncon, this%xadj, this%adjncy, &
       this%vwgt, this%vsize, this%adjwgt, this%nparts, this%tpwgts, this%ubvec,  &
       this%opts, this%objval, this%part)
     
     call this%check_empty(lempty)
+    if (present(ok)) then
+      ok = .not.lempty
+      if (ok) then
+        call this%calc_imbal(verbose)
+      end if
+      return
+    end if
     if (lempty) then
       ! try 1
       write(*,*) 'Error, empty partition detected.'
@@ -523,7 +546,7 @@ contains
     
   end subroutine metis_recursive
 
-  subroutine metis_kway(this, verbose)
+  subroutine metis_kway(this, verbose, ok)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -532,6 +555,7 @@ contains
     ! -- dummy
     class(tMetis) :: this
     logical, intent(in), optional :: verbose
+    logical, intent(out), optional :: ok
     ! -- local
     character(len=MXSLEN) :: s
     logical :: lempty
@@ -549,6 +573,13 @@ contains
       this%opts, this%objval, this%part)
     
     call this%check_empty(lempty)
+    if (present(ok)) then
+      ok = .not.lempty
+      if (ok) then
+        call this%calc_imbal(verbose)
+      end if
+      return
+    end if
     if (lempty) then
       ! try 1
       write(*,*) 'Error, empty partition detected.'
