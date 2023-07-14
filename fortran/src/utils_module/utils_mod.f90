@@ -481,7 +481,7 @@ module utilsmod
 
   contains
 
-  subroutine grid_load_imbalance(xi4, mvi4, wi4, imbal, nparts)
+  subroutine grid_load_imbalance(xi4, mvi4, wi4, imbal, nparts, ximbal)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -492,6 +492,7 @@ module utilsmod
     integer(I4B), dimension(:,:), intent(in), optional :: wi4
     real(R8B),                    intent(out) :: imbal
     integer(I4B),                 intent(out) :: nparts
+    real(R4B), dimension(:,:),    allocatable, intent(inout), optional :: ximbal
     ! -- local
     integer(I4B) :: nc, nr, ic, ir, minid, maxid, id, ip, ngid, n, i
     integer(I4B), dimension(:), allocatable :: ids
@@ -552,6 +553,17 @@ module utilsmod
     end do
     imbal = real(maxval(loadimbal),R4B)
     !
+    if (present(ximbal)) then
+      if (allocated(ximbal)) deallocate(ximbal)
+      allocate(ximbal(nc,nr)); ximbal = R4ZERO
+      do ir = 1, nr; do ic = 1, nc
+        id = xi4(ic,ir)
+        if (id /= mvi4) then
+          i = ids(id - minid + 1)
+          ximbal(ic,ir) = real(loadimbal(i),R4B)
+        end if
+      end do; end do
+    end if
     ! clean up
     deallocate(ids, wi4_loc, load, loadimbal)
     !
