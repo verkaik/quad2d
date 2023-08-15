@@ -3129,13 +3129,14 @@ module utilsmod
     return
   end subroutine tCSV_read_hdr
  
-  subroutine tCSV_read(this, file, nr_max, nc_max)
+  subroutine tCSV_read(this, file, nr_max, nc_max, ir_offset)
 ! ******************************************************************************  
     ! -- arguments
     class(tCSV) :: this
     character(len=*) :: file
     integer(I4B), intent(in), optional :: nr_max
     integer(I4B), intent(in), optional :: nc_max
+    integer(I4B), intent(in), optional :: ir_offset
     ! -- locals
     type(tVal), pointer :: v => null()
     character(len=MXSLENLONG) :: s
@@ -3171,9 +3172,13 @@ module utilsmod
     else
       nc_max_loc = nc
     end if
-    call this%init(file=file, hdr_keys=hdr_keys, nr=nr, nc=nc, nr_max=nr_max_loc, nc_max=nc_max)
     !
-    ir = 0
+    if (present(ir_offset)) then
+      ir = ir_offset
+    else
+      call this%init(file=file, hdr_keys=hdr_keys, nr=nr, nc=nc, nr_max=nr_max_loc, nc_max=nc_max)
+      ir = 0
+    end if
     do while(.true.)
       read(unit=iu,iostat=ios,fmt='(a)') s
       if (ios == 0) then
@@ -3202,8 +3207,8 @@ module utilsmod
     return
   end subroutine tCSV_read
   
-  subroutine tCSV_write(this, i1mv, i2mv, i4mv, i8mv, r4mv, r8mv, cmv)
-! ******************************************************************************  
+  subroutine tCSV_write(this, i1mv, i2mv, i4mv, i8mv, r4mv, r8mv, cmv, ir0, ir1)
+! *****************************************************************************
     ! -- arguments
     class(tCSV) :: this
     integer(I1B), intent(in), optional :: i1mv
@@ -3213,12 +3218,14 @@ module utilsmod
     real(R4B),    intent(in), optional :: r4mv
     real(R8B),    intent(in), optional :: r8mv
     character(len=*), intent(in), optional :: cmv
+    integer(I4B), intent(in), optional :: ir0
+    integer(I4B), intent(in), optional :: ir1
     ! -- locals
     type(tCSV_hdr), pointer :: hdr => null()
     type(tVal), pointer :: v => null()
     character(len=MXSLENLONG) :: s
     character(len=MXSLEN), dimension(:), allocatable :: sa
-    integer(I4B) :: iu, ir, ic, i_type, n_mv
+    integer(I4B) :: iu, ir, ic, i_type, n_mv, ir0_loc, ir1_loc
 ! ------------------------------------------------------------------------------
     !
     ! check
@@ -3233,6 +3240,18 @@ module utilsmod
     if (n_mv > 1) then
       call errmsg('tCSV_write: only 1 missing value allowed.')
     end if
+    if (present(ir0)) then
+      ir0_loc = ir0
+    else
+      ir0_loc = 1
+    end if
+    if (present(ir1)) then
+      ir1_loc = ir1
+    else
+      ir1_loc = this%nr
+    end if
+    ir0_loc = max(1,ir0_loc); ir0_loc = min(ir0_loc,this%nr)
+    ir1_loc = max(1,ir1_loc); ir1_loc = min(ir1_loc,this%nr)
     !
     call open_file(this%file, iu, 'w')
     !
@@ -3247,7 +3266,7 @@ module utilsmod
     write(iu,'(a)') trim(s)
     !
     ! write data
-    do ir = 1, this%nr
+    do ir = ir0_loc, ir1_loc
       do ic = 1, this%nc
         v => this%val(ic,ir); hdr => this%hdr(ic)
         call hdr%get(i_type=i_type)
