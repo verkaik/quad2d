@@ -64,6 +64,8 @@ module quad2dModule
     integer(I4B) :: nlay_act
     integer(I4B), dimension(:), allocatable :: lay_act
     real(R8B) :: cs_min
+    real(R8B) :: cs_min_rea
+    real(R8B) :: cs_max_rea
     !
     ! grid mapping
     integer(I2B), dimension(:), pointer :: map_ilay  => null() ! nodes
@@ -485,13 +487,15 @@ module quad2dModule
       call this%wbd%init(f_csv)
     end if
     !
-    this%nodes    = I4ZERO
-    this%nja      = I4ZERO
+    this%nodes      = I4ZERO
+    this%nja        = I4ZERO
     !
-    this%ngrid    = I4ZERO
-    this%nlay     = I4ZERO
-    this%nlay_act = I4ZERO
-    this%cs_min   = R8ZERO
+    this%ngrid      = I4ZERO
+    this%nlay       = I4ZERO
+    this%nlay_act   = I4ZERO
+    this%cs_min     = R8ZERO
+    this%cs_min_rea = R8ZERO
+    this%cs_max_rea = R8ZERO
     !
     return
    end subroutine tMF6Disu_init
@@ -1068,7 +1072,7 @@ module quad2dModule
     type(tBB), pointer :: bb => null(), bb_nbr => null()
     type(tBB), dimension(:), pointer :: bba => null()
     real(R8B) :: cl12, hwva, cl12_hor, cl12_ver, hwva_hor, hwva_ver
-    real(R4B) :: top, bot, thk, cs, cs_nbr
+    real(R4B) :: top, bot, thk, cs, cs_nbr, cs_min_rea, cs_max_rea
     logical :: lfound
     integer(I4B), dimension(:), allocatable :: i4wk, i4wk2
     integer(I4B) :: nl, nr, nc, il, jl, ir, ic, i, j, nod, ig_min, ig_max, nbr, inbr
@@ -1094,12 +1098,21 @@ module quad2dModule
     end if
     !
     ! determine nja
-    allocate(i4wk(this%nodes))
+    allocate(i4wk(nc*nr*nl))
+    !
+    this%cs_min_rea = huge(R8ONE); this%cs_max_rea = R8ZERO
     !
     do iact = 1, 2
       this%nja = 0
       do i = 1, this%nodes
         bb => bba(i)
+        cs = bb%ncol*cs_min
+        !
+        if (iact == 1) then
+          this%cs_min_rea = min(this%cs_min_rea,cs)
+          this%cs_max_rea = max(this%cs_max_rea,cs)
+        end if
+        !
         il = int(this%map_ilay(i), I4B)
         !
         ! get the neighbors
@@ -1178,7 +1191,6 @@ module quad2dModule
         end if
         !
         if (iact == 2) then
-          cs = bb%ncol*cs_min
           !
           this%iac(i) = 1 + nbr
           this%nja = this%nja + 1
@@ -9290,7 +9302,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
   end subroutine tQuad_get_grid
 
   subroutine tQuad_grid_gen(this, f_csv_dat, lwrite_disu, lwrite_asc, ncell_fin, &
-    nja_fin, nl_act, lay_out, ngrid, lskip)
+    nja_fin, nl_act, lay_out, ngrid, lskip, cs_min_rea, cs_max_rea)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -9306,6 +9318,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), dimension(:), allocatable, intent(inout) :: lay_out
     integer(I4B), intent(out) :: ngrid
     logical, intent(out) :: lskip
+    real(R8B), intent(out) :: cs_min_rea
+    real(R8B), intent(out) :: cs_max_rea
     ! -- local
     integer(I4B), parameter :: i_w  = 1
     integer(I4B), parameter :: i_e  = 2
@@ -9912,6 +9926,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end if
 !    call disu%set(zp, cs_min_tgt)
     call disu%set(zp, bbx_read%cs) ! changed 07-06-23
+    cs_min_rea = disu%cs_min_rea; cs_max_rea = disu%cs_max_rea
+    !
     if (lwrite_disu) then
       if (lwrite_asc) then
         call disu%write(write_asc=.true., d_out=trim(this%mod_dir)//'\')
