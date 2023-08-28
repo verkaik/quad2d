@@ -5,7 +5,7 @@ module quad2dModule
     i_c, i_i1, i_i2, i_i4, i_i8, i_r4, i_r8,  &
     logmsg, errmsg, tBb, tBbX, tBbObj, ta, icrl_to_node, node_to_icrl, &
     tGridArr, tGrid, get_xy, get_icr, valid_icr, get_mapped_icr, point_in_bb, &
-    tCSV, quicksort_d, swap_slash, open_file, bbi_intersect, strip_ext, apply_mask, &
+    tCSV, quicksort_d, swap_slash, open_file, bbi_intersect, bbx_intersect, strip_ext, apply_mask, &
     coarse_to_fine_grid, base_name, parse_line, get_slash, create_dir, get_unique, &
     cast_number_from_string, get_ext, change_case, fileexist, get_dir
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -844,6 +844,7 @@ module quad2dModule
     type(tGrid), pointer           :: g   => null()
     integer(I4B) :: ierr, ig, il, n, i, nc, nr, nl, mr, mc, ir, ic
     integer(I4B) :: idummy, f, bs
+    real(R8B) :: cs
     real(R8B), dimension(:), allocatable :: csa
     real(R4B) :: top, bot
 ! ------------------------------------------------------------------------------
@@ -894,7 +895,8 @@ module quad2dModule
     do i = 1, this%ngrid
       ig = this%ngrid - i + 1
       bs = 2**(this%ngrid-ig)
-      csa(ig) = cs_min_tgt * bs
+      cs = cs_min_tgt * bs
+      csa(ig) = cs
     end do
     !
     do il = 1, this%nlay_act
@@ -5484,7 +5486,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tBBx), dimension(:), pointer :: bbx_tile => null()
     type(tBB) :: bbi, gbbi
     type(tBB), pointer :: bbip => null()
-    type(tBBx) :: bbx, gbbx
+    type(tBBx) :: bbx, gbbx, cbbx
     type(tBBx), pointer :: bbxp => null()
     !
     type(tQuad), pointer :: q => null()
@@ -5497,13 +5499,14 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     character(len=MXSLEN), dimension(:), allocatable :: f_tile_nodmap, mv_tile_nodmap
     character(len=MXSLEN) :: f, d, f_csv_dat
     integer(I4B) :: lid, nmod, nact, ntile, itile, bnc, bnr
-    integer(I4B) :: ic0, ir0, ic, ir, jc, jr, kc, kr, ilm, il, jl, i, nodes, nodes_nodmap, kper
-    integer(I4B) :: nod, nod_min, nod_max, nod_off, n
+    integer(I4B) :: ic0, ir0, ic1, ir1, ic, ir, jc, jr, kc, kr, ilm, il, jl
+    integer(I4B) :: i, nodes, nodes_nodmap, kper
+    integer(I4B) :: nod, nod_min, nod_max, nod_off, n, nc, nr, bs
     integer(I4B), dimension(:), allocatable :: output_layer, i4wk
     integer(I4B), dimension(:,:), allocatable :: nodmap_q, nodmap_t, tile_topol
     real(R4B), dimension(:,:), allocatable :: xr4_q, xr4_t
     real(R4B) :: r4v
-    real(R8B) :: xll, yur, cs
+    real(R8B) :: xll, yur, cs, cs_min, cs_min_rea, cxll, cxur, cyll, cyur
     !
     logical :: read_data
 ! ------------------------------------------------------------------------------
@@ -5526,21 +5529,30 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       end if
     end do
     !
-    ! determing the bounding box and tile layout
-    call gbbi%init(); call gbbx%init()
+    ! first, determine the minimum output grid size
+    cs_min = HUGE(cs_min)
     do lid = lid0, lid1
       q => this%get_quad(lid)
       if (q%get_flag(active=LDUM)) then
-        call q%get_bb(child_bbi=bbi, child_bbx=bbx)
-        gbbi%ic0 = min(gbbi%ic0, bbi%ic0); gbbi%ic1 = max(gbbi%ic1, bbi%ic1)
-        gbbi%ir0 = min(gbbi%ir0, bbi%ir0); gbbi%ir1 = max(gbbi%ir1, bbi%ir1)
-        gbbi%ncol = gbbi%ic1 - gbbi%ic0 + 1
-        gbbi%nrow = gbbi%ir1 - gbbi%ir0 + 1
-        gbbx%xll = min(gbbx%xll, bbx%xll); gbbx%xur = max(gbbx%xur, bbx%xur)
-        gbbx%yll = min(gbbx%yll, bbx%yll); gbbx%yur = max(gbbx%yur, bbx%yur)
-        gbbx%cs = bbx%cs
+        call q%get_prop_csv(key='cs_min_rea', r8v=cs_min_rea)
+        cs_min = min(cs_min,cs_min_rea)
       end if
     end do
+    !
+    ! determing the bounding box and tile layout
+    call gbbi%init(); call gbbx%init(); gbbx%cs = cs_min
+    do lid = lid0, lid1
+      q => this%get_quad(lid)
+      if (q%get_flag(active=LDUM)) then
+        call q%get_bb(child_bbx=bbx)
+        gbbx%xll = min(gbbx%xll, bbx%xll); gbbx%xur = max(gbbx%xur, bbx%xur)
+        gbbx%yll = min(gbbx%yll, bbx%yll); gbbx%yur = max(gbbx%yur, bbx%yur)
+      end if
+    end do
+    gbbi%ncol = (gbbx%xur-gbbx%xll)/gbbx%cs
+    gbbi%nrow = (gbbx%yur-gbbx%yll)/gbbx%cs
+    gbbi%ic0 = 1; gbbi%ic1 = gbbi%ncol
+    gbbi%ir0 = 1; gbbi%ir1 = gbbi%nrow
     !
     ! determine the tiles
     if ((tile_nc < gbbi%ncol).or.(tile_nr < gbbi%nrow)) then
@@ -5620,11 +5632,19 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         do lid = lid0, lid1
           q => this%get_quad(lid)
           if (q%get_flag(active=LDUM)) then
-            call q%get_bb(child_bbi=bbi, child_bbx=bbx)
-            if (bbi_intersect(bbi, bbip)) then
+            call q%get_bb(child_bbx=bbx)
+            call q%get_prop_csv(key='cs_min_rea', r8v=cs_min_rea)
+            if (bbx_intersect(bbx, bbxp)) then
               call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm) ! layer model
               il = output_layer(ilm) ! layer for output
               call q%get_nod_map(il, nodmap_q, nodes)
+              !
+              ! check dimensions
+              nc = (bbx%xur-bbx%xll)/cs_min_rea; nr = (bbx%yur-bbx%yll)/cs_min_rea
+              if ((size(nodmap_q,1) /= nc).or.(size(nodmap_q,2) /= nr)) then
+                call errmsg('tQuads_write_mf6_heads: program error.')
+              end if
+              !
               if (allocated(nodmap_q)) then
                 call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
                 allocate(post)
@@ -5640,25 +5660,43 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                   end if
                 end if
                 !
+                bs = cs_min_rea/bbxp%cs
+                !
                 ! set the data
-                do ir = bbi%ir0, bbi%ir1
-                  do ic = bbi%ic0, bbi%ic1
-                    jr = ir - bbip%ir0 + 1; jc = ic - bbip%ic0 + 1
-                    kr = ir - bbi%ir0  + 1; kc = ic - bbi%ic0  + 1;
-                    if (valid_icir(jc, jr, bbip%ncol, bbip%nrow)) then
-                      r4v = xr4_q(kc,kr)
-                      if (r4v /= mvr4) then
-                        xr4_t(jc,jr) = r4v
-                      end if
-                    else
-                      if (write_nod_map) nodmap_q(kc,kr) = 0
+                do ir = 1, nr; do ic = 1, nc ! loop over cells with resolution cs_min_rea
+                  ! get the cell bounds
+                  cxll = bbx%xll + (ic-1)*cs_min_rea; cxur = cxll + cs_min_rea
+                  cyur = bbx%yur - (ir-1)*cs_min_rea; cyll = cyur - cs_min_rea
+                  cbbx%cs = cs_min_rea
+                  cbbx%xll = cxll; cbbx%xur = cxur; cbbx%yll = cyll; cbbx%yur = cyur
+                  !
+                  if (bbx_intersect(cbbx, bbxp)) then
+                    call get_icr(ic0, ir0, cxll + bbxp%cs*R8HALF, &
+                                           cyur - bbxp%cs*R8HALF, &
+                      bbxp%xll, bbxp%yur, bbxp%cs)
+                    call get_icr(ic1, ir1, cxur - bbxp%cs*R8HALF, &
+                                           cyll + bbxp%cs*R8HALF, &
+                      bbxp%xll, bbxp%yur, bbxp%cs)
+                    !
+                    ! check
+                    if (((ic1-ic0+1)/=bs).or.((ir1-ir0+1)/=bs)) then
+                      call errmsg('tQuads_write_mf6_heads: program error.')
                     end if
-                  end do
-                end do
+                    !
+                    r4v = xr4_q(ic,ir)
+                    if (r4v /= mvr4) then
+                      do jr = ir0, ir1; do jc = ic0, ic1
+                        xr4_t(jc,jr) = r4v
+                      end do; end do
+                    end if
+                  else
+                    if (write_nod_map) nodmap_q(ic,ir) = 0
+                  end if
+                end do; end do
                 !
                 if (write_nod_map .and. (kper == kper_beg)) then
                   nod_min = huge(I4ZERO); nod_max = 0
-                  do ir = 1, bbi%nrow; do ic = 1, bbi%ncol
+                  do ir = 1, nr; do ic = 1, nc
                     nod = nodmap_q(ic,ir)
                     if (nod /= 0) then
                       nod_min = min(nod,nod_min)
@@ -5668,7 +5706,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                   if (nod_min /= nod_max) then
                     n = nod_max - nod_min + 1
                     allocate(i4wk(n)); i4wk = 0
-                    do ir = 1, bbi%nrow; do ic = 1, bbi%ncol
+                    do ir = 1, nr; do ic = 1, nc
                       nod = nodmap_q(ic,ir)
                       if (nod /= 0) then
                         i = nod - nod_min + 1
@@ -5684,22 +5722,34 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                       end if
                     end do
                     nod_off = nod_off + nodes_nodmap
-                    do ir = bbi%ir0, bbi%ir1
-                      do ic = bbi%ic0, bbi%ic1
-                        jr = ir - bbip%ir0 + 1; jc = ic - bbip%ic0 + 1
-                        kr = ir - bbi%ir0  + 1; kc = ic - bbi%ic0  + 1;
-                        if (valid_icir(jc, jr, bbip%ncol, bbip%nrow)) then
-                          n = nodmap_q(kc,kr)
-                          if (n /= 0) then
-                            nod = i4wk(n - nod_min + 1)
-                            if (nod == 0) then
-                              call errmsg('tQuads_write_mf6_heads: program error.')
-                            end if
-                            nodmap_t(jc,jr) = nod
+                    !
+                    do ir = 1, nr; do ic = 1, nc ! loop over cells with resolution cs_min_rea
+                      ! get the cell bounds
+                      cxll = bbx%xll + (ic-1)*cs_min_rea; cxur = cxll + cs_min_rea
+                      cyur = bbx%yur - (ir-1)*cs_min_rea; cyll = cyur - cs_min_rea
+                      cbbx%cs = cs_min_rea
+                      cbbx%xll = cxll; cbbx%xur = cxur; cbbx%yll = cyll; cbbx%yur = cyur
+                      !
+                      if (bbx_intersect(cbbx, bbxp)) then
+                        call get_icr(ic0, ir0, cxll + bbxp%cs*R8HALF, &
+                                               cyur - bbxp%cs*R8HALF, &
+                          bbxp%xll, bbxp%yur, bbxp%cs)
+                        call get_icr(ic1, ir1, cxur - bbxp%cs*R8HALF, &
+                                               cyll + bbxp%cs*R8HALF, &
+                          bbxp%xll, bbxp%yur, bbxp%cs)
+                        !
+                        n = nodmap_q(ic,ir)
+                        if (n /= 0) then
+                          nod = i4wk(n - nod_min + 1)
+                          if (nod == 0) then
+                            call errmsg('tQuads_write_mf6_heads: program error.')
                           end if
+                          do jr = ir0, ir1; do jc = ic0, ic1
+                            nodmap_t(jc,jr) = nod
+                          end do; end do
                         end if
-                      end do
-                    end do
+                      end if
+                    end do; end do
                     if (allocated(i4wk)) deallocate(i4wk)
                   end if
                 end if
@@ -8912,7 +8962,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       !
       ! check
       if (.not.g0%any_neg()) then
-        mlev = ilev+ilevd
+        !mlev = ilev+ilevd
+        mlev = ilev + ilevd + 1 !25-08-23
         exit
       end if
       !
@@ -8959,10 +9010,14 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       ngrid = mlev
       nlev_out = -ngrid
     else
-      ilev0 = nlev; ilev1 = mlev
-      ngrid = nlev-mlev+1
+      !ilev0 = nlev; ilev1 = mlev
+      !ngrid = nlev-mlev+1
       ! nlev_out = nlev_in
-      nlev_out = ngrid !14-07-23
+      !nlev_out = ngrid !14-07-23
+      !
+      ngrid = nlev - mlev + 1 !25-08-23
+      ilev0 = nlev; ilev1 = ilev0 - ngrid + 1 !25-08-23
+      nlev_out = ngrid !25-08-23
     end if
     !
     ! contruct the grids, write and count
@@ -9971,10 +10026,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     character(len=MXSLEN) :: f_csv_dat, f_binpos, s, fp
     character(len=MXSLEN), dimension(:), allocatable :: sa
     integer(I4B) :: i, lm, ic
-    real(R8B) :: cs_min
+    real(R8B) :: cs_min, cs_min_tgt
 ! ------------------------------------------------------------------------------
     call this%get_bb(child_bbi=bbi, child_bbx=bbx)
-    cs_min = bbx%cs
+    call this%get_prop_csv(key='cs_min_rea', r8v=cs_min_tgt) !25-08
+    cs_min = min(cs_min_tgt, bbx%cs) !25-08
     !
     allocate(this%disu); disu => this%disu
     !
@@ -9992,8 +10048,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     call this%get_prop_csv(key='nodes', i4v=disu%nodes)
     call this%get_prop_csv(key='nlay_act', i4v=disu%nlay_act)
     call this%get_prop_csv(key='lay_act', cv=s)
-    disu%cs_min = cs_min
-    !call this%get_prop_csv(ikey=i_tgt_cs_min, r8v=disu%cs_min)
+    disu%cs_min = cs_min !25-08
     call this%get_prop_csv(ikey=i_lay_mod, i4v=lm)
     lay_mod => this%lay_mods%lay_mods(lm)
     disu%nlay = lay_mod%nlay
@@ -10054,7 +10109,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     !
     real(R8B), dimension(:,:), allocatable :: r8x
     real(R8B), dimension(:), allocatable :: r8a, cs, cs_read
-    real(R8B) :: cs_min_tgt
+    real(R8B) :: cs_min_tgt, cs_min_rea
     !
     real(R4B), dimension(:,:), allocatable :: r4x, f2d
     real(R4B), dimension(:), allocatable :: f1d, fnod
@@ -10075,8 +10130,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     call disu%x_to_top_nodes(top_nodes)
     !
     call this%get_bb(child_bbi=bbi, child_bbx=bbx)
-    cs_min_tgt = bbx%cs
-!    call this%get_prop_csv(ikey=i_tgt_cs_min, r8v=cs_min_tgt)!
+    call this%get_prop_csv(key='cs_min_rea', r8v=cs_min_rea) !25-08
+    cs_min_tgt = min(bbx%cs, cs_min_rea)
     !
     allocate(cs_read(disu%ngrid))
     cs_read(disu%ngrid) = cs_min_tgt
