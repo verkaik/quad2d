@@ -54,7 +54,7 @@ clp.add_argument('-mfsim', '--mfsim', type=str,
                 default=r'mfsim.nam',
                 help='MODFLOW 6 simulation name file.')
 clp.add_argument('-templates', '--templates', type=str, \
-                default='./mf6_templates/', \
+                default=r'./mf6_templates/', \
                 help='Template directory for MODFLOW 6 files.')
 clp.add_argument('-pre', '--pre', action='store_true', default=False, \
                 help='Flag for pre-processing MODFLOW 6')
@@ -139,13 +139,17 @@ class mf6_template():
 
     def set(self, d, valid_keys=None):
         # first, skip the booleans
+        rem_list = []
         for key in d:
             v = d[key]
             if isinstance(v, str):
                 if ((v.lower() == 't') or (v.lower() == 'true')):
                     d[key] = True
                 if ((v.lower() == 'f') or (v.lower() == 'false')):
-                   d.pop(key)
+                    rem_list.append(key)
+
+        for key in rem_list:
+            d.pop(key)
 
         if valid_keys:
             for key in d:
