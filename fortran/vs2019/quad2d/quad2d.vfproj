@@ -73,14 +73,14 @@
 		<File RelativePath="..\..\src\mf6_write_bulk_data_module\mf6_write_bulk_data_module.f90"/></Filter>
 		<Filter Name="Multigrid library">
 		<File RelativePath="..\..\src\multigrid_module\multigrid_module.f90"/></Filter>
-		<Filter Name="VTK library">
-		<File RelativePath="..\..\src\vtk_module\vtk_lib.f90"/></Filter>
-		<Filter Name="VRT library">
-		<File RelativePath="..\..\src\vrt_module\vrt_lib.f90"/></Filter>
-		<Filter Name="UUID library">
-		<File RelativePath="..\..\src\_third_party\uuid-fortran-1.0.1\uuid_module.f90"/></Filter>
 		<Filter Name="Utility library">
 		<File RelativePath="..\..\src\utils_module\utils_mod.f90"/></Filter>
+		<Filter Name="UUID library">
+		<File RelativePath="..\..\src\_third_party\uuid-fortran-1.0.1\uuid_module.f90"/></Filter>
+		<Filter Name="VRT library">
+		<File RelativePath="..\..\src\vrt_module\vrt_lib.f90"/></Filter>
+		<Filter Name="VTK library">
+		<File RelativePath="..\..\src\vtk_module\vtk_lib.f90"/></Filter>
 		<File RelativePath="..\..\src\quad2d\quad2d.f90"/>
 		<File RelativePath="..\..\src\quad2d\quad2d_module.f90"/></Filter></Files>
 	<Globals/></VisualStudioProject>
