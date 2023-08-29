@@ -12,9 +12,8 @@ module mf6_wbd_mod
   integer(I4B), parameter, public :: i_asc    = 1
   integer(I4B), parameter, public :: i_bin    = 2
   integer(I4B), parameter, public :: i_binpos = 3
-  integer(I4B), parameter :: max_nr_csv = 1000
+  integer(I4B), parameter :: max_nr_csv = 100000
   integer(I8B), parameter :: mv = I8ZERO
-
   !
   ! work arrays
   integer(I1B), dimension(:), allocatable   :: i1a_wk

@@ -4,7 +4,7 @@ module vrt_module
     i_i1, i_i2, i_i4, i_r4, i_r8, I4ZERO, R4ZERO, R8ZERO, R8HALF, &
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
-    ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case
+    ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata
 
   implicit none
@@ -1380,9 +1380,11 @@ module vrt_module
           if (i4v /= hdr%mvi4) then
             call get_xy(x, y, ic, ir, tbbx%xll, tbbx%yur, tbbx%cs)
             call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-            if (xi4(jc,jr) == mvi4) then
-              xi4(jc,jr) = i4v
-              xtile_loc(jc,jr) = itile
+            if (valid_icr(jc, jr, nc, nr)) then
+              if (xi4(jc,jr) == mvi4) then
+                xi4(jc,jr) = i4v
+                xtile_loc(jc,jr) = itile
+              end if
             end if
           end if
         end do; end do
@@ -1405,9 +1407,11 @@ module vrt_module
           if (r4v /= hdr%mvr4) then
             call get_xy(x, y, ic, ir, tbbx%xll, tbbx%yur, tbbx%cs)
             call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-            if (xr4(jc,jr) == mvr4) then
-              xr4(jc,jr) = r4v
-              xtile_loc(jc,jr) = itile
+            if (valid_icr(jc, jr, nc, nr)) then
+              if (xr4(jc,jr) == mvr4) then
+                xr4(jc,jr) = r4v
+                xtile_loc(jc,jr) = itile
+              end if
             end if
           end if
         end do; end do
@@ -1427,9 +1431,11 @@ module vrt_module
           if (r8v /= hdr%mvr8) then
             call get_xy(x, y, ic, ir, tbbx%xll, tbbx%yur, tbbx%cs)
             call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-            if (xr8(jc,jr) == mvr8) then
-              xr8(jc,jr) = r8v
-              xtile_loc(jc,jr) = itile
+            if (valid_icr(jc, jr, nc, nr)) then
+              if (xr8(jc,jr) == mvr8) then
+                xr8(jc,jr) = r8v
+                xtile_loc(jc,jr) = itile
+              end if
             end if
           end if
         end do; end do
