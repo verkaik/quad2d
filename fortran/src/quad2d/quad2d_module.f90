@@ -81,6 +81,7 @@ module quad2dModule
   contains
     procedure :: init                => tMF6Disu_init
     procedure :: clean               => tMF6Disu_clean
+    procedure :: set_cs_rea_ngrid    => tMF6Disu_set_cs_rea_ngrid
     procedure :: set                 => tMF6Disu_set
     procedure :: write               => tMF6Disu_write
     procedure :: read                => tMF6Disu_read
@@ -636,7 +637,7 @@ module quad2dModule
     type(tBBx) :: bbx_set
     integer(I4B), dimension(:), allocatable :: flg
     integer(I4B) :: nl, nr, nc, mr, mc, nodes, il, ir, ic, jr, jc
-    integer(I4B) :: ig, i, nod, bs, ig_max, il_max
+    integer(I4B) :: ig, i, nod, bs, ig_max_I1, il_max_I2, ig_max
     real(R8B) :: xc, yc
     real(R8B), dimension(:), allocatable :: csa
 ! ------------------------------------------------------------------------------
@@ -651,8 +652,8 @@ module quad2dModule
     !
     ! determine the levels and layers
     allocate(this%map_ilay(nodes), this%map_igrid(nodes), this%map_nod(nodes))
-    il_max = huge(this%map_ilay(1))
-    ig_max = huge(this%map_igrid(1))
+    il_max_I2 = huge(this%map_ilay(1))
+    ig_max_I1 = huge(this%map_igrid(1))
     !
     this%map_ilay  = 0_I2B
     this%map_igrid = 0_I1B
@@ -662,17 +663,19 @@ module quad2dModule
     bba => this%x_get_bb(x)
     !
     ! determine map_ilay and map_igrid
+    ig_max = 0
     do il = 1, nl; do ir = 1, nr; do ic = 1, nc
       nod = x(ic,ir,il)
       if (nod > 0) then
         bb => bba(nod)
-        if (il <= il_max) then
+        if (il <= il_max_I2) then
           this%map_ilay(nod) = int(il, I2B)
         else
           call errmsg('tMF6Disu_x_to_mga: ilay out of range: '//ta([il]))
         end if
         ig = ngrid - int(log(real(bb%ncol, R8B))/log(2.d0), I4B)
-        if (ig <= ig_max) then
+        ig_max = max(ig, ig_max)
+        if (ig <= ig_max_I1) then
           if (ig <= 0) then
             call errmsg('tMF6Disu_x_to_mga: program error.')
           end if
@@ -682,21 +685,29 @@ module quad2dModule
         end if
       end if
     end do; end do; end do
+    !
+    ! check
+    if (ig_max > this%ngrid) then
+      call errmsg('tMF6Disu_x_to_mga: program error, ig_max > ngrid.')
+    end if
+    !
     if (associated(bba)) deallocate(bba)
     bba => null()
     !
     allocate(this%grid_mga_nod); mga => this%grid_mga_nod
     call mga%init(nl)
     !
-    allocate(csa(ngrid))
+    allocate(csa(this%ngrid))
     do i = 1, ngrid
       ig = ngrid - i + 1
       bs = 2**(ngrid-ig)
-      csa(ig) = bbx%cs * bs
+      if (ig <= this%ngrid) then
+        csa(ig) = bbx%cs * bs
+      end if
     end do
     do il = 1, nl
       mg => mga%get_mg(il)
-      call mg%init(ngrid, xll=bbx%xll, xur=bbx%xur, &
+      call mg%init(this%ngrid, xll=bbx%xll, xur=bbx%xur, &
         yll=bbx%yll, yur=bbx%yur, csa=csa, mvi4=0)
     end do
     deallocate(csa)
@@ -720,7 +731,7 @@ module quad2dModule
     allocate(flg(nodes)); flg = 0
     do il = 1, nl
       mg => mga%get_mg(il)
-      do ig = 1, ngrid
+      do ig = 1, this%ngrid
         g => mg%grid(ig)
         call g%set_const(i4v=0)
       end do
@@ -1060,6 +1071,44 @@ module quad2dModule
     return
   end subroutine tMF6Disu_get_nodes
   
+  subroutine tMF6Disu_set_cs_rea_ngrid(this, x, cs_min)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tMF6Disu) :: this
+    integer(I4B), dimension(:,:,:), intent(in) :: x
+    real(R8B), intent(in) :: cs_min
+    ! -- local
+    type(tBB), pointer :: bb => null()
+    type(tBB), dimension(:), pointer :: bba => null()
+    integer(I4B) :: i, nodes
+    real(R8B) :: cs
+! ------------------------------------------------------------------------------
+
+    ! get the bounding box
+    bba => this%x_get_bb(x); nodes = maxval(x)
+    !
+    this%cs_min_rea = huge(R8ONE); this%cs_max_rea = R8ZERO
+    !
+    do i = 1, nodes
+      bb => bba(i)
+      cs = bb%ncol*cs_min
+      !
+      this%cs_min_rea = min(this%cs_min_rea,cs)
+      this%cs_max_rea = max(this%cs_max_rea,cs)
+    end do
+    !
+    ! realised ngrid:
+    this%ngrid = int(log(this%cs_max_rea/this%cs_min_rea)/log(2.d0),I4B) + 1
+    !
+    ! clean up
+    if (associated(bba)) deallocate(bba)
+    !
+    return
+  end subroutine tMF6Disu_set_cs_rea_ngrid
+  
   subroutine tMF6Disu_set(this, zp, cs_min)
 ! ******************************************************************************
 !
@@ -1102,18 +1151,11 @@ module quad2dModule
     ! determine nja
     allocate(i4wk(nc*nr*nl))
     !
-    this%cs_min_rea = huge(R8ONE); this%cs_max_rea = R8ZERO
-    !
     do iact = 1, 2
       this%nja = 0
       do i = 1, this%nodes
         bb => bba(i)
         cs = bb%ncol*cs_min
-        !
-        if (iact == 1) then
-          this%cs_min_rea = min(this%cs_min_rea,cs)
-          this%cs_max_rea = max(this%cs_max_rea,cs)
-        end if
         !
         il = int(this%map_ilay(i), I4B)
         !
@@ -9974,7 +10016,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     else
       call disu%init(f_csv_dat)
     end if
+    call disu%set_cs_rea_ngrid(x, bbx_read%cs)
     call disu%x_to_mga(x, ngrid, bbx_read)
+    ngrid = disu%ngrid
     if (.false.) then
       fp = trim(debug_d)//ta([this%gid])//'_l'
       call disu%grid_mga_nod%write_vrt(fp)

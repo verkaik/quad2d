@@ -1205,7 +1205,6 @@ subroutine quad_grid_balancing()
     n = xq%n; lid_new = n; nmet = 0; np_met = 0
     do i = 1, n
       lid = wgt_sort_lid(i)
-      lid = wgt_sort_lid(i)
       q => xq%get_quad(lid)
       if (q%get_flag(active=LDUM)) then
         call q%get_prop(weight=wgt_q)
