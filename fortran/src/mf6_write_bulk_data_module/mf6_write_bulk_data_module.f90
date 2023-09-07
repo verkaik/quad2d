@@ -12,7 +12,7 @@ module mf6_wbd_mod
   integer(I4B), parameter, public :: i_asc    = 1
   integer(I4B), parameter, public :: i_bin    = 2
   integer(I4B), parameter, public :: i_binpos = 3
-  integer(I4B), parameter :: max_nr_csv = 100000
+  integer(I4B), parameter, public :: MAX_NR_CSV = 100000
   integer(I8B), parameter :: mv = I8ZERO
   !
   ! work arrays
@@ -54,7 +54,7 @@ contains
 ! ==============================================================================
 ! ==============================================================================
   
-  subroutine tMf6Wbd_init(this, f_csv, f_binpos)
+  subroutine tMf6Wbd_init(this, f_csv, f_binpos, reuse)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -63,14 +63,32 @@ contains
     class(tMf6Wbd) :: this
     character(len=*), intent(in) :: f_csv
     character(len=*), intent(in), optional :: f_binpos
+    logical, intent(in), optional :: reuse
     ! -- local
-    logical :: lex
+    integer(I4B), parameter :: NR_MAX = 10000
+    logical :: lex, reuse_loc
     integer(I4B) :: iu
     type(tCSV), pointer :: csv => null()
 ! ------------------------------------------------------------------------------
+    !
+    if (present(reuse)) then
+      reuse_loc = reuse
+    else
+      reuse_loc = .false.
+    end if
+    !
     call this%clean()
     !
     allocate(this%csv); csv => this%csv
+    !
+    if (reuse_loc) then
+      call this%read_csv(f_csv, nr_max=NR_MAX)
+      if (present(f_binpos)) then
+        this%use_binpos = .true.
+        this%f_binpos = f_binpos
+      end if
+      return
+    end if
     !
     call csv%init(file=f_csv, &
       hdr_keys=['id', 'nr', 'file', 'file_type', 'data_type', &
