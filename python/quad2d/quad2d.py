@@ -903,9 +903,8 @@ def mf6_model_admin(d_ini, d_xch, mf6_mod_lst):
                 d_mf6_mod[mt]['models'].append((mtype, str(mfname), name))
     return d_mf6_mod
 
-
 #############################################################################
-def write_model(id, d_ini, d_props, d_mod_ini_list, d_template):
+def write_model(id, d_ini, d_props, d_mod_ini_list, d_template, single_model):
 #############################################################################
     log.info(f'Writing MODFLOW 6 model files for id={id}...')
     #
@@ -913,7 +912,10 @@ def write_model(id, d_ini, d_props, d_mod_ini_list, d_template):
     nodes     = int(get_key(d_props, str(id), 'nodes'))
     nja       = int(get_key(d_props, str(id), 'nja'))
     #
-    lay_mod = get_key(d_props, str(id), 'lay_mod', eval_k=True)
+    if single_model:
+        lay_mod = 1
+    else:
+        lay_mod = get_key(d_props, str(id), 'lay_mod', eval_k=True)
     d_mod_ini = d_mod_ini_list[lay_mod-1]
     #
     # read the file for csv_dat
@@ -1005,6 +1007,11 @@ def pre():
 
     # read the model definitions
     mod_def = get_key(d_ini, '_general', 'model_definition', eval_k=True)
+    if len(mod_def) == 1:
+        single_model = True
+    else:
+        single_model = False
+
     d_mod_ini_list = []
     for f in mod_def:
         d_mod_ini_list.append(read_ini(f))
@@ -1029,7 +1036,7 @@ def pre():
     for id in id_list:
         i += 1
         log.info(10*'='+f' Processing {i:06d}/{n:06d} '+10*'=')
-        lst = write_model(id, d_ini, d_props, d_mod_ini_list, d_template)
+        lst = write_model(id, d_ini, d_props, d_mod_ini_list, d_template, single_model)
         mf6_mod_lst.extend(lst)
 
     # set up the administration
