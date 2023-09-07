@@ -5,8 +5,9 @@ module utilsmod
 
   implicit none
 
-  integer(I4B), parameter :: MXSLEN = 1024
-  integer(I4B), parameter :: MXSLENLONG = 10240
+  integer(I4B), parameter :: MXSLENSHORT = 64
+  integer(I4B), parameter :: MXSLEN      = 1024
+  integer(I4B), parameter :: MXSLENLONG  = 10240
   
   integer(I4B), parameter :: i_c  = 0 ! character
   integer(I4B), parameter :: i_i1 = 1 ! integer 1 byte
@@ -157,25 +158,27 @@ module utilsmod
     type(tCSV_hdr), dimension(:),   pointer :: hdr => null()
     type(tVal),     dimension(:,:), pointer :: val => null()
   contains
-    procedure :: init          => tCSV_init
-    procedure :: read          => tCSV_read
-    procedure :: write         => tCSV_write
-    procedure :: get_nc        => tCSV_get_nc
-    procedure :: get_nr        => tCSV_get_nr
-    procedure :: get_col       => tCSV_get_col
-    procedure :: get_row       => tCSV_get_row
-    procedure :: exist_col     => tCSV_exist_col
-    procedure :: add_key       => tCSV_add_key
-    procedure :: get_key       => tCSV_get_key
-    procedure :: read_hdr      => tCSV_read_hdr
-    procedure :: set_hdr       => tCSV_set_hdr
-    procedure :: add_hdr       => tCSV_add_hdr
-    procedure :: set_val       => tCSV_set_val
-    procedure :: get_val       => tCSV_get_val
-    procedure :: get_column    => tCSV_get_column
-    procedure :: get_matrix    => tCSV_get_matrix
-    procedure :: get_selection => tCSV_get_selection
-    procedure :: clean      => tCSV_clean
+    procedure :: init           => tCSV_init
+    procedure :: read           => tCSV_read
+    procedure :: write          => tCSV_write
+    procedure :: get_nc         => tCSV_get_nc
+    procedure :: get_nr         => tCSV_get_nr
+    procedure :: get_col        => tCSV_get_col
+    procedure :: get_row        => tCSV_get_row
+    procedure :: exist_col      => tCSV_exist_col
+    procedure :: add_key        => tCSV_add_key
+    procedure :: get_key        => tCSV_get_key
+    procedure :: read_hdr       => tCSV_read_hdr
+    procedure :: set_hdr        => tCSV_set_hdr
+    procedure :: add_hdr        => tCSV_add_hdr
+    procedure :: set_val        => tCSV_set_val
+    procedure :: increase_nr    => tCSV_increase_nr
+    procedure :: set_val_by_key => tCSV_set_val_by_key
+    procedure :: get_val        => tCSV_get_val
+    procedure :: get_column     => tCSV_get_column
+    procedure :: get_matrix     => tCSV_get_matrix
+    procedure :: get_selection  => tCSV_get_selection
+    procedure :: clean          => tCSV_clean
     procedure :: clean_and_init_row => tCSV_clean_and_init_row
   end type tCSV
   !
@@ -2359,7 +2362,11 @@ module utilsmod
 ! ------------------------------------------------------------------------------
     num => this%x
     call num%set_val_by_s(s)
-    allocate(this%s, source=trim(s))
+    if (len_trim(s) == 0) then
+      allocate(this%s, source=' ')
+    else
+      allocate(this%s, source=trim(s))
+    end if
     !
     return
   end subroutine tVal_set_val_s
@@ -3268,18 +3275,26 @@ module utilsmod
     ! write data
     do ir = ir0_loc, ir1_loc
       do ic = 1, this%nc
-        v => this%val(ic,ir); hdr => this%hdr(ic)
-        call hdr%get(i_type=i_type)
-        if ((n_mv == 1).and.v%lnum) then
-          if (present(i1mv)) sa(ic) = v%get_val_s(i_type, i1mv=i1mv)
-          if (present(i2mv)) sa(ic) = v%get_val_s(i_type, i2mv=i2mv)
-          if (present(i4mv)) sa(ic) = v%get_val_s(i_type, i4mv=i4mv)
-          if (present(i8mv)) sa(ic) = v%get_val_s(i_type, i8mv=i8mv)
-          if (present(r4mv)) sa(ic) = v%get_val_s(i_type, r4mv=r4mv)
-          if (present(r8mv)) sa(ic) = v%get_val_s(i_type, r8mv=r8mv)
-          if (present(cmv))  sa(ic) = v%get_val_s(i_type, cmv=cmv)
+        v => this%val(ic,ir)
+        if (v%lnum) then
+          hdr => this%hdr(ic); call hdr%get(i_type=i_type)
+          if (n_mv == 1) then
+            if (present(i1mv)) sa(ic) = v%get_val_s(i_type, i1mv=i1mv)
+            if (present(i2mv)) sa(ic) = v%get_val_s(i_type, i2mv=i2mv)
+            if (present(i4mv)) sa(ic) = v%get_val_s(i_type, i4mv=i4mv)
+            if (present(i8mv)) sa(ic) = v%get_val_s(i_type, i8mv=i8mv)
+            if (present(r4mv)) sa(ic) = v%get_val_s(i_type, r4mv=r4mv)
+            if (present(r8mv)) sa(ic) = v%get_val_s(i_type, r8mv=r8mv)
+            if (present(cmv))  sa(ic) = v%get_val_s(i_type, cmv=cmv)
+          else
+            sa(ic) = v%get_val_s(i_type)
+          end if
         else
-          sa(ic) = v%get_val_s(i_type)
+          if (present(cmv)) then
+           sa(ic) = cmv 
+          else
+           sa(ic) = trim(v%s)
+          end if
         end if
       end do
       s = ta(sa, sep_in=',')
@@ -3507,6 +3522,60 @@ module utilsmod
     return
   end subroutine tCSV_set_val
   
+  subroutine tCSV_increase_nr(this)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tCSV) :: this
+ ! ------------------------------------------------------------------------------
+    this%nr = this%nr + 1
+    !
+    return
+  end subroutine tCSV_increase_nr
+    
+  subroutine tCSV_set_val_by_key(this, ic, key, i1v, i2v, i4v, i8v, &
+    r4v, r8v, cv)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tCSV) :: this
+    !
+    integer(I4B),     intent(in), optional  :: ic
+    character(len=*), intent(in), optional  :: key
+    integer(I1B),     intent(in), optional :: i1v
+    integer(I2B),     intent(in), optional :: i2v
+    integer(I4B),     intent(in), optional :: i4v
+    integer(I8B),     intent(in), optional :: i8v
+    real(R4B),        intent(in), optional :: r4v
+    real(R8B),        intent(in), optional :: r8v
+    character(len=*), intent(in), optional :: cv
+    !
+    ! -- local
+    character(len=MXSLEN) :: key_loc
+    integer(I4B) :: jc, n
+ ! ------------------------------------------------------------------------------
+    !
+    n = 0
+    if (present(ic)) then
+      jc = ic; n = n + 1
+    end if
+    if (present(key)) then
+      jc = this%get_col(key); n = n + 1
+    end if
+    if (n /= 1) then
+      call errmsg('tCSV_set_val_by_key: too many input defined.')
+    end if
+    !
+    call this%set_val(ic=jc, ir=this%nr, i1v=i1v, i2v=i2v, i4v=i4v, i8v=i8v, &
+      r4v=r4v, r8v=r8v, cv=cv, create_s=.true.)
+    !
+    return
+  end subroutine tCSV_set_val_by_key
+    
   subroutine tCSV_get_column(this, ic, key, i1a, i2a, i4a, i8a, r4a, r8a, ca)
 ! ******************************************************************************  
     ! -- arguments
