@@ -2028,6 +2028,14 @@ subroutine hdrhdr_clean(this)
     !
     call this%init(fp=fp)
     !
+    if (associated(this%hdr)) then
+      call this%hdr%clean()
+      deallocate(this%hdr)
+    end if
+    if (associated(this%hdr_src)) then
+      call this%hdr_src%clean()
+      deallocate(this%hdr_src)
+    end if
     allocate(this%hdr, this%hdr_src)
     dst_hdr => this%hdr; src_hdr => this%hdr_src
     call src_hdr%init(); call dst_hdr%init()
