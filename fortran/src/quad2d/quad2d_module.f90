@@ -1,19 +1,22 @@
 module quad2dModule
   ! modules
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, &
-    I1ZERO, I2ZERO, I4ZERO, R8ZERO, I1ONE, I4ONE, R4ZERO, R4ONE, R8ONE, I4MINONE, R8HALF, R4TINY, MXSLEN, &
+    I1ZERO, I2ZERO, I4ZERO, R8ZERO, I1ONE, I4ONE, R4ZERO, R4ONE, R8ONE, I4MINONE, &
+    R8HALF, R4TINY, MXSLEN, MXSLENSHORT, &
     i_c, i_i1, i_i2, i_i4, i_i8, i_r4, i_r8,  &
     logmsg, errmsg, tBb, tBbX, tBbObj, ta, icrl_to_node, node_to_icrl, &
     tGridArr, tGrid, get_xy, get_icr, valid_icr, get_mapped_icr, point_in_bb, &
-    tCSV, quicksort_d, swap_slash, open_file, bbi_intersect, bbx_intersect, strip_ext, apply_mask, &
+    tCSV, quicksort_d, swap_slash, open_file, bbi_intersect, bbx_intersect, &
+    strip_ext, apply_mask, &
     coarse_to_fine_grid, base_name, parse_line, get_slash, create_dir, get_unique, &
-    cast_number_from_string, get_ext, change_case, fileexist, get_dir
+    cast_number_from_string, get_ext, change_case, fileexist, get_dir, &
+    quicksort_r
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
     i_uscl_arith, i_dscl_nointp, &
     uscl_names, dscl_names, n_uscl, n_dscl, i_uscl_nodata, i_dscl_nodata
   use kdtree2_module
   use vrt_module, only: tVrt, tVrtArray
-  use mf6_wbd_mod, only: tMf6Wbd, i_binpos, i_asc, i_bin
+  use mf6_wbd_mod, only: tMf6Wbd, i_binpos, i_asc, i_bin, MAX_NR_CSV
   use multigrid_module, only: tMultiGrid, tMultiGridArray
   use mf6_post_module, only: tPostMod
   !
@@ -23,7 +26,7 @@ module quad2dModule
   !
   logical :: LDUM
   !
-  real(R8b), parameter :: R8MV=-99999999.d0
+  real(R8b), parameter :: R8MV = -99999999.d0
   !
   integer(I4B), parameter :: i_p  = 1   ! ic,   ir 
   integer(I4B), parameter :: i_e  = 2   ! ic+1, ir
@@ -41,7 +44,8 @@ module quad2dModule
   integer(I4B), dimension(2,nst_fp) :: sticir_fp
   integer(I4B), dimension(2,nst_np) :: sticir_np
   !
-  type :: tMF6Disu
+  type, public :: tMF6Disu
+    integer(I4B) :: nodes_intf
     integer(I4B) :: nodes
     integer(I4B) :: nja
     !
@@ -80,6 +84,7 @@ module quad2dModule
     type(tMultiGridArray),          pointer     :: grid_mga_bot => null()
   contains
     procedure :: init                => tMF6Disu_init
+    procedure :: init_csv            => tMF6Disu_init_csv
     procedure :: clean               => tMF6Disu_clean
     procedure :: set_cs_rea_ngrid    => tMF6Disu_set_cs_rea_ngrid
     procedure :: set                 => tMF6Disu_set
@@ -110,7 +115,7 @@ module quad2dModule
     procedure :: copy  => tVertIntf_copy
   end type tVertIntf
   
-  type :: tMF6Exchange
+  type, public :: tMF6Exchange
     integer(I4B)                            :: nexg
     integer(I4B), dimension(:), allocatable :: cellidm1
     integer(I4B), dimension(:), allocatable :: cellidm2
@@ -243,7 +248,7 @@ module quad2dModule
   integer(I4B), parameter :: i_vrt_array = 2
   integer(I4B), parameter :: i_csv       = 3
   !
-  type tData
+  type :: tData
     integer(I4B) :: i_type
     integer(I4B) :: i_uscl
     integer(I4B) :: i_dscl
@@ -252,7 +257,7 @@ module quad2dModule
     type(tCSV),      pointer :: csv  => null()
   end type tData
   !
-  type tDataModelData
+  type, public :: tDataModelData
     character(len=MXSLEN) :: id
     !
     integer(I4B) :: i_type
@@ -274,6 +279,10 @@ module quad2dModule
   contains
     procedure :: init  => tDataModelData_init
     procedure :: clean => tDataModelData_clean
+    procedure :: mf6_get_data_vrt_list        => tDataModelData_mf6_get_data_vrt_list
+    procedure :: mf6_get_data_vrt_array       => tDataModelData_mf6_get_data_vrt_array
+    procedure :: mf6_get_data_vrt_array_array => tDataModelData_mf6_get_data_vrt_array_array
+    procedure :: mf6_get_data_csv_list        => tDataModelData_mf6_get_data_csv_list
   end type tDataModelData
   !
   type, public :: tDataModel
@@ -287,12 +296,17 @@ module quad2dModule
     procedure :: get_dat  => tDataModel_get_dat
   end type tDataModel
   !
+  integer(I4B), parameter :: NMAX_UNI_MAP = 100000
   type, public :: tDataModels
     integer(I4B) :: n_inp_mod
     type(tDataModel), dimension(:), pointer :: dat_mods => null()
+    integer(I4B) :: n_uni_map
+    character(len=MXSLENSHORT), dimension(:), allocatable :: uni_map_id
+    integer(I4B), dimension(:,:), allocatable :: uni_map_ir
   contains
-    procedure :: init  => tDataModels_init
-    procedure :: clean => tDataModels_clean
+    procedure :: init           => tDataModels_init
+    procedure :: clean          => tDataModels_clean
+    procedure :: create_uni_map => tDataModels_create_uni_map
   end type tDataModels
   !
   integer(I4B), parameter, public :: i_lid                = 1
@@ -305,7 +319,8 @@ module quad2dModule
   integer(I4B), parameter, public :: i_tgt_cs_min_dz_top  = 8
   integer(I4B), parameter, public :: i_tgt_cs_max         = 9
   integer(I4B), parameter, public :: i_head               = 10
-  integer(I4B), parameter, public :: n_prop_field         = i_head
+  integer(I4B), parameter, public :: i_merge              = 11
+  integer(I4B), parameter, public :: n_prop_field         = i_merge
   !
   type, public :: tProps
     type(tCSV), pointer                            :: csv => null() 
@@ -366,6 +381,7 @@ module quad2dModule
     procedure :: write_mf6_heads      => tQuads_write_mf6_heads
     procedure :: write_mf6_bnd_heads  => tQuads_write_mf6_bnd_heads
     procedure :: set_mod_dir          => tQuads_set_mod_dir
+    procedure :: merge_disu           => tQuads_merge_disu
     !
   end type tQuads
   !
@@ -451,12 +467,14 @@ module quad2dModule
     !procedure :: store_gid_mask  => tQuad_store_gid_mask
     procedure :: check_gid_mask  => tQuad_check_gid_mask
     procedure :: get_nod_map     => tQuad_get_nod_map
+    procedure :: mf6_get_data    => tQuad_mf6_get_data
   end type tQuad
 
   ! expose
   !public :: tQuads, tQuad, tNbrIntf, tIntf
   !public :: tLayerModels, tLayerModel, tLookupTable
   public :: get_number_of_levels, get_refinement_level
+  public :: mf6_data_write
 
   save
   
@@ -468,26 +486,18 @@ module quad2dModule
 ! ==============================================================================
 ! ==============================================================================
   
-   subroutine tMF6Disu_init(this, f_csv, f_bin)
+   subroutine tMF6Disu_init(this)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tMF6Disu) :: this
-    character(len=*), intent(in) :: f_csv
-    character(len=*), intent(in), optional :: f_bin
     ! -- local
 ! ------------------------------------------------------------------------------
     call this%clean
     !
-    allocate(this%wbd)
-    if (present(f_bin)) then
-      call this%wbd%init(f_csv, f_bin)
-    else
-      call this%wbd%init(f_csv)
-    end if
-    !
+    this%nodes_intf = I4ZERO
     this%nodes      = I4ZERO
     this%nja        = I4ZERO
     !
@@ -500,6 +510,36 @@ module quad2dModule
     !
     return
    end subroutine tMF6Disu_init
+   
+   subroutine tMF6Disu_init_csv(this, f_csv, f_bin, reuse)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tMF6Disu) :: this
+    character(len=*), intent(in) :: f_csv
+    character(len=*), intent(in), optional :: f_bin
+    logical, intent(in), optional :: reuse
+    ! -- local
+    logical :: reuse_loc
+! ------------------------------------------------------------------------------
+    !
+    if (present(reuse)) then
+      reuse_loc = reuse
+    else
+      reuse_loc = .false.
+    end if
+    !
+    allocate(this%wbd)
+    if (present(f_bin)) then
+      call this%wbd%init(f_csv=f_csv, f_binpos=f_bin, reuse=reuse_loc)
+    else
+      call this%wbd%init(f_csv=f_csv, reuse=reuse_loc)
+    end if
+    !
+    return
+   end subroutine tMF6Disu_init_csv
   
    subroutine tMF6Disu_clean(this)
 ! ******************************************************************************
@@ -1351,28 +1391,36 @@ module quad2dModule
     return
   end subroutine tMF6Disu_set
    
-  subroutine tMF6Disu_write(this, write_bin, write_asc, d_out)
+  subroutine tMF6Disu_write(this, write_opt, write_bin, write_asc, d_out, id_pref)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tMF6Disu) :: this
+    integer(I4B), intent(in) :: write_opt
     logical, intent(in), optional :: write_bin
     logical, intent(in), optional :: write_asc
     character(len=*), intent(in), optional :: d_out
+    character(len=*), intent(in), optional :: id_pref
     ! -- local
     type(tMf6Wbd), pointer :: wbd => null()
-    character(len=MXSLEN) :: d, f_bin, f_asc
+    character(len=MXSLEN) :: d, f_bin, f_asc, id_pref_loc, id_str
     character(len=MXSLEN), dimension(:), allocatable :: id
     logical :: wbin, wasc, wbnp
-    integer(I4B) :: i
+    integer(I4B) :: i, nid
     !
     integer(I1B), dimension(:), pointer :: i1a
     integer(I2B), dimension(:), pointer :: i2a
     integer(I4B), dimension(:), pointer :: i4a
     real(R8B), dimension(:), pointer :: r8a
 ! ------------------------------------------------------------------------------
+    if (present(id_pref)) then
+      id_pref_loc = id_pref
+    else
+      id_pref_loc = ''
+    end if
+    !
     wbnp = .true.
     wbin = .false.
     wasc = .false.
@@ -1394,8 +1442,12 @@ module quad2dModule
     wbd => this%wbd
     !
     ! write all R8 data
-    allocate(id(5)); id = ['top','bot','area','cl12','hwva']
-    do i = 1, size(id)
+    if (write_opt == 1) then
+      allocate(id(5)); id = ['top','bot','area','cl12','hwva']; nid = 5
+    else
+      nid = 0
+    end if
+    do i = 1, nid
       select case(id(i))
       case('top')
         r8a => this%top
@@ -1409,43 +1461,58 @@ module quad2dModule
         r8a => this%hwva
       end select
       if (.not.associated(r8a)) cycle
-      if (wbnp) call wbd%write_array(id=id(i), r8a=r8a)
-      if (wbin) call wbd%write_array(id=id(i), r8a=r8a, f_bin=trim(d)//trim(id(i))//'.bin')
-      if (wasc) call wbd%write_array(id=id(i), r8a=r8a, f_asc=trim(d)//trim(id(i))//'.asc')
+      id_str = trim(id(i))//trim(id_pref)
+      if (wbnp) call wbd%write_array(id=id_str, r8a=r8a)
+      if (wbin) call wbd%write_array(id=id_str, r8a=r8a, f_bin=trim(d)//trim(id_str)//'.bin')
+      if (wasc) call wbd%write_array(id=id_str, r8a=r8a, f_asc=trim(d)//trim(id_str)//'.asc')
     end do
-    deallocate(id)
+    if (allocated(id)) deallocate(id)
     !
     ! write all I1 data
-    allocate(id(1)); id = ['map_igrid']
-    do i = 1, size(id)
+    if (write_opt == 1) then
+      nid = 0
+    else
+      allocate(id(1)); id = ['map_igrid']; nid = 1
+    end if
+    do i = 1, nid
       select case(id(i))
       case('map_igrid')
         i1a => this%map_igrid
       end select
       if (.not.associated(i1a)) cycle
-      if (wbnp) call wbd%write_array(id=id(i), i1a=i1a)
-      if (wbin) call wbd%write_array(id=id(i), i1a=i1a, f_bin=trim(d)//trim(id(i))//'.bin')
-      if (wasc) call wbd%write_array(id=id(i), i1a=i1a, f_asc=trim(d)//trim(id(i))//'.asc')
+      id_str = trim(id(i))//trim(id_pref)
+      if (wbnp) call wbd%write_array(id=id_str, i1a=i1a)
+      if (wbin) call wbd%write_array(id=id_str, i1a=i1a, f_bin=trim(d)//trim(id_str)//'.bin')
+      if (wasc) call wbd%write_array(id=id_str, i1a=i1a, f_asc=trim(d)//trim(id_str)//'.asc')
     end do
-    deallocate(id)
+    if (allocated(id)) deallocate(id)
     
     ! write all I2 data
-    allocate(id(1)); id = ['map_ilay']
-    do i = 1, size(id)
+    if (write_opt == 1) then
+      nid = 0
+    else
+      allocate(id(1)); id = ['map_ilay']; nid = 1
+    end if
+    do i = 1, nid
       select case(id(i))
       case('map_ilay')
         i2a => this%map_ilay
       end select
       if (.not.associated(i2a)) cycle
-      if (wbnp) call wbd%write_array(id=id(i), i2a=i2a)
-      if (wbin) call wbd%write_array(id=id(i), i2a=i2a, f_bin=trim(d)//trim(id(i))//'.bin')
-      if (wasc) call wbd%write_array(id=id(i), i2a=i2a, f_asc=trim(d)//trim(id(i))//'.asc')
+      id_str = trim(id(i))//trim(id_pref)
+      if (wbnp) call wbd%write_array(id=id_str, i2a=i2a)
+      if (wbin) call wbd%write_array(id=id_str, i2a=i2a, f_bin=trim(d)//trim(id_str)//'.bin')
+      if (wasc) call wbd%write_array(id=id_str, i2a=i2a, f_asc=trim(d)//trim(id_str)//'.asc')
     end do
-    deallocate(id)
+    if (allocated(id)) deallocate(id)
     
     ! write all I4 data
-    allocate(id(6)); id = ['idomain','ia','iac','ja','ihc','map_nod']
-    do i = 1, size(id)
+    if (write_opt == 1) then
+      allocate(id(4)); id = ['idomain','iac','ja','ihc']; nid = 4
+    else
+      allocate(id(2)); id = ['ia','map_nod']; nid = 2
+    end if
+    do i = 1, nid
       select case(id(i))
       case('idomain')
         i4a => this%idomain
@@ -1461,11 +1528,12 @@ module quad2dModule
         i4a => this%map_nod
       end select
       if (.not.associated(i4a)) cycle
-      if (wbnp) call wbd%write_array(id=id(i), i4a=i4a)
-      if (wbin) call wbd%write_array(id=id(i), i4a=i4a, f_bin=trim(d)//trim(id(i))//'.bin')
-      if (wasc) call wbd%write_array(id=id(i), i4a=i4a, f_asc=trim(d)//trim(id(i))//'.asc')
+      id_str = trim(id(i))//trim(id_pref)
+      if (wbnp) call wbd%write_array(id=id_str, i4a=i4a)
+      if (wbin) call wbd%write_array(id=id_str, i4a=i4a, f_bin=trim(d)//trim(id_str)//'.bin')
+      if (wasc) call wbd%write_array(id=id_str, i4a=i4a, f_asc=trim(d)//trim(id_str)//'.asc')
     end do
-    deallocate(id)
+    if (allocated(id)) deallocate(id)
     !
     ! write the csv-file
     call wbd%write_csv()
@@ -1473,15 +1541,17 @@ module quad2dModule
     return
   end subroutine tMF6Disu_write
    
-  subroutine tMF6Disu_read(this)
+  subroutine tMF6Disu_read(this, id_pref)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tMF6Disu) :: this
+    character(len=*), intent(in), optional :: id_pref
     ! -- local
     type(tMf6Wbd), pointer :: wbd => null()
+    character(len=MXSLEN) :: id_pref_loc
     character(len=MXSLEN), dimension(:), allocatable :: id
     integer(I4B) :: i
     !
@@ -1490,6 +1560,13 @@ module quad2dModule
     integer(I4B), dimension(:), pointer :: i4a
     real(R8B),    dimension(:), pointer :: r8a
 ! ------------------------------------------------------------------------------
+    !
+    if (present(id_pref)) then
+      id_pref_loc = id_pref
+    else
+      id_pref_loc = ''
+    end if
+    !
     wbd => this%wbd
     !
     allocate(id(5))
@@ -1497,19 +1574,19 @@ module quad2dModule
     do i = 1, size(id)
       select case(id(i))
       case('top')
-        call wbd%read_array(id(i), r8a=r8a)
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), r8a=r8a)
         allocate(this%top, source=r8a)
       case('bot')
-        call wbd%read_array(id(i), r8a=r8a)
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), r8a=r8a)
         allocate(this%bot, source=r8a)
       case('map_igrid')
-        call wbd%read_array(id(i), i1a=i1a)
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), i1a=i1a)
         allocate(this%map_igrid, source=i1a)
       case('map_ilay')
-        call wbd%read_array(id(i), i2a=i2a)
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), i2a=i2a)
         allocate(this%map_ilay, source=i2a)
       case('map_nod')
-        call wbd%read_array(id(i), i4a=i4a)
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), i4a=i4a)
         allocate(this%map_nod, source=i4a)
       end select
     end do
@@ -1617,6 +1694,11 @@ module quad2dModule
     call this%clean()
     this%n_inp_mod = n_inp_mod
     allocate(this%dat_mods(n_inp_mod))
+    allocate(this%uni_map_id(NMAX_UNI_MAP))
+    allocate(this%uni_map_ir(n_inp_mod,NMAX_UNI_MAP))
+    this%n_uni_map = 0
+    this%uni_map_id = ''
+    this%uni_map_ir = 0
     !
     return
   end subroutine tDataModels_init
@@ -1644,16 +1726,63 @@ module quad2dModule
     !
     this%n_inp_mod = 0
     !
+    if (allocated(this%uni_map_id)) deallocate(this%uni_map_id)
+    if (allocated(this%uni_map_ir)) deallocate(this%uni_map_ir)
+    !
     return
   end subroutine tDataModels_clean
   
+  subroutine tDataModels_create_uni_map(this)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tDataModels) :: this
+    ! -- local
+    type(tdataModel), pointer :: dat_mod => null()
+    type(tCSV), pointer :: param_map => null()
+    !
+    logical :: found
+    character(len=MXSLEN) :: id
+    character(len=MXSLEN), dimension(:), allocatable :: id_arr
+    integer(I4B) :: i, j, k, p
+! ------------------------------------------------------------------------------
+    do i = 1, this%n_inp_mod
+      dat_mod => this%dat_mods(i)
+      param_map => dat_mod%param_map
+      !
+      call param_map%get_column(key='id', ca=id_arr)
+      !
+      do j = 1, size(id_arr)
+        id = id_arr(j)
+        found = .false.
+        do k = 1, this%n_uni_map
+          if (id == this%uni_map_id(k)) then
+            found = .true.; p = k
+            exit
+          end if
+        end do
+        !
+        if (.not.found) then
+          this%n_uni_map = this%n_uni_map + 1
+          p = this%n_uni_map
+          this%uni_map_id(p) = id
+        end if
+        this%uni_map_ir(i,p) = j
+      end do
+    end do
+    !
+    return
+  end subroutine tDataModels_create_uni_map
+   
 ! ==============================================================================
 ! ==============================================================================
 ! tDataModel
 ! ==============================================================================
 ! ==============================================================================
    
-   subroutine tDataModel_init(this, name, f_list, f_map)
+   subroutine tDataModel_init(this, name, f_list, f_map, n_inp_mod)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1663,18 +1792,23 @@ module quad2dModule
     character(len=*), intent(in) :: name
     character(len=*), intent(in) :: f_list
     character(len=*), intent(in) :: f_map
+    integer(I4B), intent(in) :: n_inp_mod
     ! -- local
     type(tCSV), pointer :: csv
+    integer(I4B) :: ic
 ! ------------------------------------------------------------------------------
     call this%clean()
     !
     allocate(this%param_list)
     csv => this%param_list
     call csv%read(f_list)
-    ! 
+    !
     allocate(this%param_map)
     csv => this%param_map
     call csv%read(f_map)
+!    do ic = 1, n_inp_mod
+!      call csv%add_key('inp_mod_'//ta([ic]))
+!    end do
     !
     this%name = trim(name)
     !
@@ -1718,7 +1852,7 @@ module quad2dModule
     return
   end function tDataModel_get_ndat
   !
-  subroutine tDataModel_get_dat(this, idat, dmdat)
+  subroutine tDataModel_get_dat(this, idat, dmdat, init_read)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1727,6 +1861,7 @@ module quad2dModule
     class(tDataModel) :: this
     integer(I4B), intent(in) :: idat
     type(tDataModelData), pointer, intent(inout) :: dmdat
+    logical, intent(in), optional :: init_read
     ! -- local
     integer(I4B), parameter :: max_ndat = 3
     !
@@ -1740,9 +1875,15 @@ module quad2dModule
     character(len=MXSLEN) :: id, output_file_type, scltype_up, scltype_down, ext
     character(len=MXSLEN) :: s, s1, s2, s3, file, file_type, assign_method
     !
-    logical :: write_nod
+    logical :: write_nod, init_read_loc
     integer(I4B) :: i, j, ir, i_uscl, i_dscl, i_min, i_max
 ! ------------------------------------------------------------------------------
+    if (present(init_read)) then
+      init_read_loc = init_read
+    else
+      init_read_loc = .true.
+    end if
+    !
     if (associated(dmdat)) then
       call dmdat%clean(); deallocate(dmdat); dmdat => null()
     end if
@@ -1807,17 +1948,18 @@ module quad2dModule
         dmdat%i_in_file_type = i_vrt
         dat%i_type = i_vrt
         allocate(dat%vrt); vrt => dat%vrt
-        call dat%vrt%init(file)
+        if (init_read_loc) call dat%vrt%init(file)
       case('.txt')
         dmdat%i_in_file_type = i_vrt_array
         dat%i_type = i_vrt_array
         allocate(dat%vrta); vrta => dat%vrta
-        vrta%f = file; call vrta%init()
+        vrta%f = file
+        if (init_read_loc) call vrta%init()
       case('.csv')
         dmdat%i_in_file_type = i_csv
         dat%i_type = i_csv
         allocate(dat%csv); csv => dat%csv
-        call csv%read(file)
+        if (init_read_loc) call csv%read(file)
       case default
         call errmsg('File not recognized: '//trim(file))
       end select
@@ -5503,7 +5645,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
   end subroutine tQuads_write_mf6_xch_intf
   !
   subroutine tQuads_write_mf6_heads(this, lid0, lid1, heads_layer, &
-    kper_beg, kper_end, tile_nc, tile_nr, f_vrt_pref, write_nod_map)
+    kper_beg, kper_end, tile_nc, tile_nr, f_vrt_pref, write_nod_map, &
+    f_in_csv_merge)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -5519,6 +5662,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(in) :: tile_nr
     character(len=*), intent(in) :: f_vrt_pref
     logical, intent(in) :: write_nod_map
+    character(len=*), intent(in), optional :: f_in_csv_merge
     ! -- local
     real(R4B), parameter :: mvr4 = -99999.
     !
@@ -5531,27 +5675,55 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tBBx) :: bbx, gbbx, cbbx
     type(tBBx), pointer :: bbxp => null()
     !
-    type(tQuad), pointer :: q => null()
+    type(tQuad), pointer :: q => null(), q2 => null()
     !
     type(tPostMod), pointer :: post => null()
     !
     type(tVrt), pointer :: vrt => null()
     !
+    type(tCsv), pointer :: csv => null()
+    !
     character(len=MXSLEN), dimension(:), allocatable :: pfix_tile, f_tile, mv_tile
     character(len=MXSLEN), dimension(:), allocatable :: f_tile_nodmap, mv_tile_nodmap
     character(len=MXSLEN) :: f, d, f_csv_dat
+    character(len=MXSLEN) :: s
     integer(I4B) :: lid, nmod, nact, ntile, itile, bnc, bnr
     integer(I4B) :: ic0, ir0, ic1, ir1, ic, ir, jc, jr, kc, kr, ilm, il, jl
     integer(I4B) :: i, nodes, nodes_nodmap, kper
     integer(I4B) :: nod, nod_min, nod_max, nod_off, n, nc, nr, bs
+    integer(I4B) :: im, nim, nlid, nodes_merge, lid2, nodes_offset
     integer(I4B), dimension(:), allocatable :: output_layer, i4wk
+    integer(I4B), dimension(:), allocatable :: im_arr, lid2im_arr, lid_arr
     integer(I4B), dimension(:,:), allocatable :: nodmap_q, nodmap_t, tile_topol
     real(R4B), dimension(:,:), allocatable :: xr4_q, xr4_t
     real(R4B) :: r4v
     real(R8B) :: xll, yur, cs, cs_min, cs_min_rea, cxll, cxur, cyll, cyur
     !
-    logical :: read_data
+    logical :: read_data, merge
 ! ------------------------------------------------------------------------------
+    !
+    if (present(f_in_csv_merge)) then
+      merge = .true.
+      allocate(csv)
+      call csv%read(f_in_csv_merge)
+      !
+      call csv%get_column(key='lid', i4a=im_arr)
+      nim = size(im_arr)
+      !
+      ! first, flag the quads and set im
+      allocate(lid2im_arr(this%n)); lid2im_arr = 0
+      do im = 1, nim
+        ! get the local lids
+        call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
+        call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+        do i = 1, nlid
+          lid = lid_arr(i)
+          lid2im_arr(lid) = im
+        end do
+      end do
+    else
+      merge = .false.
+    end if
     !
     call parse_line(s=heads_layer, i4a=output_layer, token_in=',')
     call this%lay_mods%get(n_inp_mod=nmod)
@@ -5563,7 +5735,13 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     do lid = lid0, lid1
       q => this%get_quad(lid)
       if (q%get_flag(active=LDUM)) then
-        call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
+        if (merge) then
+          im = lid2im_arr(lid) 
+          call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
+        else
+          call q%get_prop_csv(ikey=i_head, cv=f)
+        end if
+        call swap_slash(f)
         if (.not.fileexist(f)) then
           call q%set_flag(active=.false.)
           this%n_act = this%n_act - 1
@@ -5679,7 +5857,24 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             if (bbx_intersect(bbx, bbxp)) then
               call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm) ! layer model
               il = output_layer(ilm) ! layer for output
-              call q%get_nod_map(il, nodmap_q, nodes)
+              !
+              if (merge) then
+                im = lid2im_arr(lid)
+                call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
+                call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+                nodes_offset = 0
+                do i = 1, nlid
+                   lid2 = lid_arr(i)
+                   if (lid == lid2) exit
+                   q2 => this%get_quad(lid2)
+                   call q2%get_prop_csv(key='nodes', i4v=nodes)
+                   nodes_offset = nodes_offset + nodes
+                end do
+                call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f)
+                call q%get_nod_map(il, nodmap_q, nodes, f, nodes_offset)
+              else
+                call q%get_nod_map(il, nodmap_q, nodes)
+              end if
               !
               ! check dimensions
               nc = (bbx%xur-bbx%xll)/cs_min_rea; nr = (bbx%yur-bbx%yll)/cs_min_rea
@@ -5688,11 +5883,21 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               end if
               !
               if (allocated(nodmap_q)) then
-                call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
                 allocate(post)
-                call post%init(f, kper, kper, nodes)
-                call post%read_ulasav()
-                call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                call logmsg('Reading heads for lid '//trim(ta([lid]))//'...')
+                if (merge) then
+                  im = lid2im_arr(lid) 
+                  call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
+                  call csv%get_val(ir=im, ic=csv%get_col('nodes'), i4v=nodes_merge)
+                  call post%init(f, kper, kper, nodes_merge)
+                  call post%read_ulasav()
+                  call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                else
+                  call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
+                  call post%init(f, kper, kper, nodes)
+                  call post%read_ulasav()
+                  call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                end if
                 !
                 if (.false.) then
                   if (write_nod_map .and. (kper == kper_beg)) then
@@ -6045,6 +6250,246 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuads_set_mod_dir
 
+  subroutine tQuads_merge_disu(this, lids, disu_arr, disu_merge)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tQuads) :: this 
+    integer(I4B), dimension(:), intent(in) :: lids
+    type(tMF6Disu), dimension(:), intent(in), pointer :: disu_arr
+    type(tMF6Disu), intent(inout), pointer :: disu_merge
+    ! -- local
+    type(tQuad), pointer :: q_m1 => null(), q_m2 => null()
+    type(tIntf), pointer :: intf => null()
+    type(tNbrIntf), pointer :: nintf => null()
+    type(tMF6Exchange), pointer :: xch => null()
+    type(tMF6Disu), pointer :: disu => null()
+    integer(I4B) :: nm, nodes, i, j, j0, k, offset, lid, inbr, lid_nbr, nexg
+    integer(I4B) :: n, m, n0, n1, m0, m1, im0, im1, p, iac_max, nbr
+    integer(I4B), dimension(:), allocatable :: nodes_arr, nodes_offset, lids2im
+    integer(I4B), dimension(:), allocatable :: pos, iac_chk
+    !
+    ! work arrays
+    integer(I4B), dimension(:), allocatable :: wrk_ia, wrk_ja, wrk_ihc
+    integer(I4B), dimension(:), allocatable :: i4w
+    real(R4B), dimension(:), allocatable :: r4w
+    real(R8B), dimension(:), allocatable :: wrk_cl12, wrk_hwva
+! ------------------------------------------------------------------------------
+    !
+    nm = size(lids)
+    allocate(nodes_arr(nm), nodes_offset(nm))
+    !
+    do i = 1, nm
+      disu => disu_arr(i)
+      nodes_arr(i) = disu%nodes
+    end do
+    disu_merge%nodes = sum(nodes_arr)
+    !
+    allocate(disu_merge%top    (disu_merge%nodes))
+    allocate(disu_merge%bot    (disu_merge%nodes))
+    allocate(disu_merge%area   (disu_merge%nodes))
+    allocate(disu_merge%idomain(disu_merge%nodes))
+    allocate(disu_merge%iac    (disu_merge%nodes))
+    !
+    offset = 0
+    do i = 1, nm
+      nodes_offset(i) = offset
+      disu => disu_arr(i)
+      do j = 1, disu%nodes
+        k = j + offset
+        disu_merge%top(k)     = disu%top(j)
+        disu_merge%bot(k)     = disu%bot(j)
+        disu_merge%area(k)    = disu%area(j)
+        disu_merge%idomain(k) = disu%idomain(j)
+        disu_merge%iac(k)     = disu%iac(j)
+      end do
+      offset = offset + disu%nodes
+    end do
+    !
+    allocate(lids2im(this%n)); lids2im = 0
+    do i = 1, size(lids)
+      lid = lids(i)
+      lids2im(lid) = i
+    end do
+    !
+    do im0 = 1, size(lids)
+      lid = lids(im0)
+      q_m1 => this%get_quad(lid)
+      if (q_m1%get_flag(active=LDUM)) then
+        intf => q_m1%intf
+        do inbr = 1, intf%n_nbr ! loop over interfaces
+          nintf => intf%nbr_intf(inbr)
+          lid_nbr = nintf%nbr_lid
+          im1 = lids2im(lid_nbr)
+          if (nintf%active.and.(im1 > 0)) then ! internal interface
+            if (nintf%xch_active == 1) then
+              xch => nintf%xch
+              do j = 1, xch%nexg
+                n0 = xch%cellidm1(j); n1 = xch%cellidm2(j)
+                m0 = n0 + nodes_offset(im0); m1 = n1 + nodes_offset(im1)
+                disu_merge%iac(m0) = abs(disu_merge%iac(m0)) + 1
+                disu_merge%iac(m1) = abs(disu_merge%iac(m1)) + 1
+                !
+                ! label the nodes that having exchange neigbbors
+                disu_merge%iac(m0) = -disu_merge%iac(m0)
+                disu_merge%iac(m1) = -disu_merge%iac(m1)
+              end do
+            end if
+          end if
+        end do
+      end if
+    end do
+    disu_merge%nja = sum(abs(disu_merge%iac))
+    allocate(iac_chk(disu_merge%nodes)); iac_chk = 0
+    !
+    allocate(wrk_ja  (disu_merge%nja)); wrk_ja   = 0
+    allocate(wrk_ihc (disu_merge%nja)); wrk_ihc  = -1
+    allocate(wrk_cl12(disu_merge%nja)); wrk_cl12 = -R8ONE
+    allocate(wrk_hwva(disu_merge%nja)); wrk_hwva = -R8ONE
+    !
+    allocate(pos(disu_merge%nodes))
+    pos(1) = 1
+    do i = 2, disu_merge%nodes
+      pos(i) = pos(i-1) + abs(disu_merge%iac(i-1))
+    end do
+    do i = 1, nm
+      disu => disu_arr(i)
+      do j = 1, disu%nodes
+        k = disu%ia(j); n0 = disu%ja(k); m0 = n0 + nodes_offset(i)
+        p = pos(m0)
+        do k = disu%ia(j), disu%ia(j+1)-1
+          n = disu%ja(k); m = n + nodes_offset(i)
+          wrk_ja(p)   = m
+          wrk_ihc(p)  = disu%ihc(k)
+          wrk_cl12(p) = disu%cl12(k)
+          wrk_hwva(p) = disu%hwva(k)
+          iac_chk(m) = iac_chk(m) + 1
+          p = p + 1
+        end do
+        pos(m0) = p
+      end do
+    end do
+    !
+    do im0 = 1, size(lids)
+      lid = lids(im0)
+      q_m1 => this%get_quad(lid)
+      if (q_m1%get_flag(active=LDUM)) then
+        intf => q_m1%intf
+        do inbr = 1, intf%n_nbr ! loop over interfaces
+          nintf => intf%nbr_intf(inbr)
+          lid_nbr = nintf%nbr_lid
+          im1 = lids2im(lid_nbr)
+          if (nintf%active.and.(im1 > 0)) then ! internal interface
+            if (nintf%xch_active == 1) then
+              xch => nintf%xch
+              do j = 1, xch%nexg
+                n0 = xch%cellidm1(j); n1 = xch%cellidm2(j)
+                m0 = n0 + nodes_offset(im0); m1 = n1 + nodes_offset(im1)
+                p = pos(m0)
+                wrk_ja(p)   = m1
+                wrk_ihc(p)  = xch%ihc
+                wrk_cl12(p) = xch%cl1
+                wrk_hwva(p) = xch%hwva
+                pos(m0) = p + 1
+                iac_chk(m0) = iac_chk(m0) + 1
+                p = pos(m1)
+                wrk_ja(p)   = m0
+                wrk_ihc(p)  = xch%ihc
+                wrk_cl12(p) = xch%cl1
+                wrk_hwva(p) = xch%hwva
+                iac_chk(m1) = iac_chk(m1) + 1
+                pos(m1) = p + 1
+              end do
+            end if
+          end if
+        end do
+      end if
+    end do
+    !
+    ! checks
+    do i = 1, disu_merge%nodes
+      if (abs(disu_merge%iac(i)) /= iac_chk(i)) then
+        call errmsg('tQuads_merge_disu: program error 1.')
+      end if
+    end do
+    !
+    !
+    allocate(disu_merge%ja  (disu_merge%nja))
+    allocate(disu_merge%ihc (disu_merge%nja))
+    allocate(disu_merge%cl12(disu_merge%nja))
+    allocate(disu_merge%hwva(disu_merge%nja))
+    
+    ! create the ia array
+    allocate(wrk_ia(disu_merge%nodes+1))
+    wrk_ia(1) = 1
+    do i = 2, disu_merge%nodes + 1
+      wrk_ia(i) = wrk_ia(i-1) + abs(disu_merge%iac(i-1))
+    end do
+    !
+    iac_max = maxval(abs(disu_merge%iac))
+    allocate(r4w(iac_max), i4w(iac_max))
+    !
+    ! set the nodal adjacency data
+    do i = 1, disu_merge%nodes
+      ! set the node data
+      j0 = wrk_ia(i)
+      !
+      ! set the noda data
+      disu_merge%ja(j0)   = wrk_ja(j0)
+      disu_merge%ihc(j0)  = wrk_ihc(j0)
+      disu_merge%cl12(j0) = wrk_cl12(j0)
+      disu_merge%hwva(j0) = wrk_hwva(j0)
+      !
+      ! set the neighbor data
+      if (disu_merge%iac(i) > 0) then
+        do j = j0 + 1, wrk_ia(i+1)-1
+          disu_merge%ja(j)   = wrk_ja(j)
+          disu_merge%ihc(j)  = wrk_ihc(j)
+          disu_merge%cl12(j) = wrk_cl12(j)
+          disu_merge%hwva(j) = wrk_hwva(j)
+        end do
+      else ! sort
+        nbr = 0; r4w = R4ZERO; i4w = I4ZERO
+        do j = j0 + 1, wrk_ia(i+1)-1
+          nbr = nbr + 1
+          r4w(nbr) = real(wrk_ja(j),R4B)
+          i4w(nbr) = nbr
+        end do
+        !
+        ! sort the neighbor node numbers
+        call quicksort_r(r4w, i4w, nbr)
+        !
+        ! set the neighbor data
+        n = 0
+        do j = j0 + 1, wrk_ia(i+1)-1
+          n = n + 1; k = i4w(n)
+          disu_merge%ja(j)   = wrk_ja(j0+k)
+          disu_merge%ihc(j)  = wrk_ihc(j0+k)
+          disu_merge%cl12(j) = wrk_cl12(j0+k)
+          disu_merge%hwva(j) = wrk_hwva(j0+k)
+        end do
+        !
+      end if
+      disu_merge%iac(i) = abs(disu_merge%iac(i))
+    end do
+    !
+    ! checks
+    do i = 1, disu_merge%nja
+      if ((disu_merge%ja(i) == 0).or.(disu_merge%ihc(i) == -1).or.&
+        (disu_merge%cl12(i) < R8ZERO).or.(disu_merge%hwva(i) < R8ZERO)) then
+        call errmsg('tQuads_merge_disu: program error 2.')
+      end if
+    end do
+    !
+    ! clean-up
+    deallocate(wrk_ja, wrk_ihc, wrk_cl12, wrk_hwva, r4w, i4w)
+    deallocate(nodes_arr, nodes_offset, lids2im, pos, iac_chk)
+    !
+    return
+  end subroutine tQuads_merge_disu
+    
 ! ==============================================================================
 ! ==============================================================================
 ! tMF6Exchange
@@ -8060,7 +8505,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end function tQuad_check_gid_mask
 !  
-  subroutine tQuad_get_nod_map(this, il, nod_map, nodes)
+  subroutine tQuad_get_nod_map(this, il, nod_map, nodes, f_csv_dat, nodes_offset)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -8070,13 +8515,20 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(in) :: il
     integer(I4B), dimension(:,:), allocatable, intent(inout) :: nod_map
     integer(I4B), intent(out) :: nodes
+    character(len=*), intent(in), optional :: f_csv_dat
+    integer(I4B), optional :: nodes_offset
     ! -- local
     type(tMF6Disu), pointer :: disu => null()
     type(tBB) :: bbi
-    integer(I4B) :: jl
+    integer(I4B) :: jl, ir, ic, n
 ! ------------------------------------------------------------------------------
     ! read the grid data
-    call this%grid_init()
+    if (present(f_csv_dat)) then
+      call this%grid_init(f_csv_dat, '_'//trim(ta([this%lid])))
+    else
+      call this%grid_init()
+    end if
+    !
     disu => this%disu
     nodes = disu%nodes
     call this%get_bb(child_bbi=bbi)
@@ -8091,6 +8543,17 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           allocate(nod_map, source=disu%grid_x_nod(:,:,jl))
           exit
         end if
+      end do
+    end if
+    !
+    if (present(nodes_offset)) then
+      do ir = 1, size(nod_map,2)
+        do ic = 1, size(nod_map,1)
+          n = nod_map(ic,ir)
+          if (n > 0) then
+            nod_map(ic,ir) = n + nodes_offset
+          end if
+        end do
       end do
     end if
     !
@@ -9398,25 +9861,17 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuad_get_grid
 
-  subroutine tQuad_grid_gen(this, f_csv_dat, lwrite_disu, lwrite_asc, ncell_fin, &
-    nja_fin, nl_act, lay_out, ngrid, lskip, cs_min_rea, cs_max_rea)
+  subroutine tQuad_grid_gen(this, nl_act, lay_out, lskip, disu)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tQuad) :: this
-    character(len=*), intent(in) :: f_csv_dat
-    logical, intent(in) :: lwrite_disu
-    logical, intent(in) :: lwrite_asc
-    integer(I4B), intent(out) :: ncell_fin
-    integer(I4B), intent(out) :: nja_fin
     integer(I4B), intent(out) :: nl_act
     integer(I4B), dimension(:), allocatable, intent(inout) :: lay_out
-    integer(I4B), intent(out) :: ngrid
     logical, intent(out) :: lskip
-    real(R8B), intent(out) :: cs_min_rea
-    real(R8B), intent(out) :: cs_max_rea
+    type(tMF6Disu), intent(inout), pointer :: disu
     ! -- local
     integer(I4B), parameter :: i_w  = 1
     integer(I4B), parameter :: i_e  = 2
@@ -9437,7 +9892,6 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tVertIntf), pointer :: vintf => null()
     type(tLayerModel), pointer :: lay_mod => null()
     type(tProps), pointer :: props => null()
-    type(tMF6Disu), pointer :: disu => null()
     !
     logical :: use_found, found, use_lay_intv, lc2f, lf2c, lok
     !
@@ -9467,7 +9921,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B) :: jc, jr, jc0, jc1, jr0, jr1, jl0, jl1, dl
     integer(I4B) :: ig, ig_min, ig_max, i_sten, n_try
     integer(I4B) :: nlev_c2f, nlev_f2c, max_nlev_c2f, max_nlev_f2c
-    integer(I4B) :: nodes
+    integer(I4B) :: nodes, ngrid
 ! ------------------------------------------------------------------------------
     !
     props => this%props
@@ -9937,7 +10391,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       end if
     end do
     !
-    nodes = maxval(abs(nod))
+    nodes = maxval(abs(nod)); disu%nodes_intf = nodes
     do il = 1, nl; do ir = 1, nr; do ic = 1, nc
       icell = x(ic,ir,il)
       if (icell > 0) then
@@ -10009,34 +10463,34 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (allocated(bb       )) deallocate(bb       )
     !
     ! create the grid and store the arrays
-    allocate(disu)
-    if(.not.lwrite_asc) then
-      f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
-      call disu%init(f_csv_dat, f_binpos)
-    else
-      call disu%init(f_csv_dat)
-    end if
+    !allocate(disu)
+    !if(.not.lwrite_asc) then
+    !  f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+    !  call disu%init(f_csv_dat, f_binpos)
+    !else
+    !  call disu%init(f_csv_dat)
+    !end if
     call disu%set_cs_rea_ngrid(x, bbx_read%cs)
     call disu%x_to_mga(x, ngrid, bbx_read)
-    ngrid = disu%ngrid
-    if (.false.) then
-      fp = trim(debug_d)//ta([this%gid])//'_l'
-      call disu%grid_mga_nod%write_vrt(fp)
-    end if
-!    call disu%set(zp, cs_min_tgt)
+    !ngrid = disu%ngrid
+    !if (.false.) then
+    !  fp = trim(debug_d)//ta([this%gid])//'_l'
+    !  call disu%grid_mga_nod%write_vrt(fp)
+    !end if
+!   ! call disu%set(zp, cs_min_tgt)
     call disu%set(zp, bbx_read%cs) ! changed 07-06-23
-    cs_min_rea = disu%cs_min_rea; cs_max_rea = disu%cs_max_rea
+    !cs_min_rea = disu%cs_min_rea; cs_max_rea = disu%cs_max_rea
     !
-    if (lwrite_disu) then
-      if (lwrite_asc) then
-        call disu%write(write_asc=.true., d_out=trim(this%mod_dir)//'\')
-      else
-        call disu%write()
-      end if
-    end if
-    ncell_fin = disu%nodes
-    nja_fin = disu%nja
-    call disu%clean(); deallocate(disu)
+    !if (lwrite_disu) then
+    !  if (lwrite_asc) then
+    !    call disu%write(write_asc=.true., d_out=trim(this%mod_dir)//'\')
+    !  else
+    !    call disu%write()
+    !  end if
+    !end if
+    !ncell_fin = disu%nodes
+    !nja_fin = disu%nja
+    !call disu%clean(); deallocate(disu)
     !
     ! clean up part 2
     if (allocated(zp       )) deallocate(zp       )
@@ -10049,17 +10503,18 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuad_grid_gen
   
-  subroutine tQuad_grid_init(this)
+  subroutine tQuad_grid_init(this, f_csv_dat, id_pref)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tQuad) :: this
+    character(len=*), intent(in), optional :: f_csv_dat
+    character(len=*), intent(in), optional :: id_pref
     ! -- local
     character(len=MXSLEN), parameter :: debug_d = &
       'f:\models\lhm\LHM-Flex\pre-processing\debug_read\'
-    integer(I4B), parameter :: NR_MAX = 1000 
     !
     type(tBb) :: bbi
     type(tBbx) :: bbx
@@ -10067,11 +10522,18 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tLayerModel),  pointer :: lay_mod  => null()
     type(tMf6Wbd), pointer :: wbd => null()
     !
-    character(len=MXSLEN) :: f_csv_dat, f_binpos, s, fp
+    character(len=MXSLEN) :: f_csv_dat_loc, id_pref_loc, f_binpos, s, fp
     character(len=MXSLEN), dimension(:), allocatable :: sa
     integer(I4B) :: i, lm, ic
     real(R8B) :: cs_min, cs_min_tgt
 ! ------------------------------------------------------------------------------
+    !
+    if (present(id_pref)) then
+      id_pref_loc = id_pref
+    else
+      id_pref_loc = ''
+    end if
+    !
     call this%get_bb(child_bbi=bbi, child_bbx=bbx)
     call this%get_prop_csv(key='cs_min_rea', r8v=cs_min_tgt) !25-08
     cs_min = min(cs_min_tgt, bbx%cs) !25-08
@@ -10079,14 +10541,19 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     allocate(this%disu); disu => this%disu
     !
     ! Get the data csv-file, and expand
-    call this%get_prop_csv(key='csv_dat', cv=f_csv_dat)
-    f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+    if (present(f_csv_dat)) then
+      f_csv_dat_loc = f_csv_dat
+    else
+      call this%get_prop_csv(key='csv_dat', cv=f_csv_dat_loc)
+    end if
+    !
+    f_binpos = trim(strip_ext(f_csv_dat_loc))//'.binpos'
     allocate(disu%wbd); wbd => disu%wbd
-    call wbd%read_csv(f_csv_dat, nr_max=NR_MAX)
+    call wbd%read_csv(f_csv_dat_loc, nr_max=MAX_NR_CSV)
     wbd%f_binpos = f_binpos
     !
     ! read the grid data
-    call disu%read()
+    call disu%read(id_pref_loc)
     !
     ! Set the metadata
     call this%get_prop_csv(key='nodes', i4v=disu%nodes)
@@ -10120,6 +10587,899 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     !
     return
   end subroutine tQuad_grid_init
+  
+  subroutine tQuad_mf6_get_data(this, dmdat, i4a, r8a, r8x)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tQuad) :: this
+    type(tDataModelData), pointer, intent(in) :: dmdat
+    integer(I4B), dimension(:), allocatable, intent(inout) :: i4a
+    real(R8B), dimension(:), allocatable, intent(inout) :: r8a
+    real(R8B), dimension(:,:), allocatable, intent(inout) :: r8x
+    !
+    ! -- local
+    type(tBbx) :: bbx
+    type(tMF6Disu), pointer :: disu
+    real(R8B) :: cs_min_rea
+! ------------------------------------------------------------------------------
+    disu => this%disu
+    call this%get_bb(child_bbx=bbx)
+    call this%get_prop_csv(key='cs_min_rea', r8v=cs_min_rea)
+    !
+    if (allocated(i4a)) deallocate(i4a)
+    if (allocated(r8a)) deallocate(r8a)
+    if (allocated(r8x)) deallocate(r8x)
+    !
+    select case(dmdat%i_in_file_type)
+    case(i_vrt)
+      select case(dmdat%i_type)
+      case(i_type_list)      
+        call dmdat%mf6_get_data_vrt_list(disu, bbx, cs_min_rea, i4a, r8x)
+      case(i_type_array)
+        call dmdat%mf6_get_data_vrt_array(disu, bbx, cs_min_rea, i4a, r8a)
+      end select
+    case(i_vrt_array)
+      call dmdat%mf6_get_data_vrt_array_array(disu, bbx, r8a)
+    case(i_csv)
+      call dmdat%mf6_get_data_csv_list(disu, bbx, i4a, r8a)
+    end select
+    !
+    return
+  end subroutine tQuad_mf6_get_data
+
+  subroutine mf6_data_write(wbd, id, i_out_file_type, i4a, r8a, r8x, ndat)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    type(tMf6Wbd), pointer, intent(in) :: wbd
+    character(len=*), intent(in) :: id
+    integer(I4B), intent(in) :: i_out_file_type
+    integer(I4B), dimension(:),   allocatable, intent(in), optional :: i4a
+    real(R8B),    dimension(:),   allocatable, intent(in), optional :: r8a
+    real(R8B),    dimension(:,:), allocatable, intent(in), optional :: r8x
+    integer(I4B), intent(in), optional :: ndat
+    ! -- local
+    logical :: li4a, lr8a, lr8x, lwrite_list_1d, lwrite_list_nd, lwrite_array
+    character(len=MXSLEN) :: d
+    integer(I4B) :: ir, ic, nc
+    integer(I4B), dimension(:),   allocatable :: i4a_wrk
+    real(R8B),    dimension(:),   allocatable :: r8a_wrk
+    real(R8B),    dimension(:,:), allocatable :: r8x_wrk
+! ------------------------------------------------------------------------------
+    !
+    ! checks
+    li4a = .false.; lr8a = .false.; lr8x = .false.
+    if (present(i4a)) then
+      if (allocated(i4a)) then
+        li4a = .true.
+        if (present(ndat)) then
+          allocate(i4a_wrk(ndat))
+          do ir = 1, ndat
+            i4a_wrk(ir) = i4a(ir)
+          end do
+        else
+          allocate(i4a_wrk, source=i4a)
+        end if
+      end if
+    end if
+    if (present(r8a)) then
+      if (allocated(r8a)) then
+        lr8a = .true.
+        if (present(ndat)) then
+          allocate(r8a_wrk(ndat))
+          do ir = 1, ndat
+            r8a_wrk(ir) = r8a(ir)
+          end do
+        else
+          allocate(r8a_wrk, source=r8a)
+        end if
+      end if
+    end if
+    if (present(r8x)) then
+      if (allocated(r8x)) then
+        lr8x = .true.
+        if (present(ndat)) then
+          nc = size(r8x,1)
+          allocate(r8x_wrk(nc,ndat))
+          do ir = 1, ndat; do ic = 1, nc
+            r8x_wrk(ic,ir) = r8x(ic,ir)
+          end do; end do
+        else
+          allocate(r8x_wrk, source=r8x)
+        end if
+      end if
+    end if
+    !
+    if ((.not.li4a).and.(.not.lr8a).and.(.not.lr8x)) then
+      call logmsg('No writing of MODFLOW 6 data...')
+      return
+    end if
+    !
+    lwrite_list_1d = .false.
+    lwrite_list_nd = .false.
+    lwrite_array   = .false.
+    if (li4a) then
+      if ((.not.lr8a).and.(.not.lr8x)) then
+        call errmsg('mf6_data_write: program error.')
+      end if
+      if (lr8a.and.lr8x) then
+        call errmsg('mf6_data_write: program error.')
+      end if
+      if (lr8a) then
+        lwrite_list_1d = .true.
+      else
+        lwrite_list_nd = .true.
+      end if
+    else
+      lwrite_array = .true.
+      if (.not.lr8a) then
+        call errmsg('tQuad_mf6_data_write: program error.')
+      end if
+    end if
+    !
+    select case(i_out_file_type)
+    case(i_binpos)
+      if (lwrite_list_1d) then
+        call wbd%write_list(id=id, i4a1=i4a_wrk, r8a1=r8a_wrk)
+      elseif(lwrite_list_nd) then
+        call wbd%write_list(id=id, i4a1=i4a_wrk, r8x=r8x_wrk)
+      else
+        call wbd%write_array(id=id, r8a=r8a_wrk)
+      end if
+    case(i_bin)
+      d = get_dir(wbd%csv%file)
+      if (lwrite_list_1d) then
+        call wbd%write_list(id=id, i4a1=i4a_wrk, r8a1=r8a_wrk, &
+          f_bin=trim(d)//trim(id)//'.bin')
+      elseif(lwrite_list_nd) then
+        call wbd%write_list(id=id, i4a1=i4a_wrk, r8x=r8x_wrk, &
+          f_bin=trim(d)//trim(id)//'.bin')
+      else
+        call wbd%write_array(id=id, r8a=r8a_wrk, &
+          f_bin=trim(d)//trim(id)//'.bin')
+      end if
+    case(i_asc)
+      d = get_dir(wbd%csv%file)
+      if (lwrite_list_1d) then
+        call wbd%write_list(id=id, i4a1=i4a_wrk, r8a1=r8a_wrk, &
+          f_asc=trim(d)//trim(id)//'.asc')
+      elseif(lwrite_list_nd) then
+        call wbd%write_list(id=id, i4a1=i4a_wrk, r8x=r8x_wrk, &
+          f_asc=trim(d)//trim(id)//'.asc')
+      else
+        call wbd%write_array(id=id, r8a=r8a_wrk, &
+          f_asc=trim(d)//trim(id)//'.asc')
+      end if
+    end select
+    !
+    if (allocated(i4a_wrk)) deallocate(i4a_wrk)
+    if (allocated(r8a_wrk)) deallocate(r8a_wrk)
+    if (allocated(r8x_wrk)) deallocate(r8x_wrk)
+    !
+    return
+  end subroutine mf6_data_write
+  
+  subroutine tDataModelData_mf6_get_data_vrt_list(this, disu, bbx, cs_min_rea, &
+    i4a, r8x)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tDataModelData) :: this
+    type(tMF6Disu), intent(in), pointer :: disu
+    type(tBbx), intent(in) :: bbx
+    real(R8B), intent(in) :: cs_min_rea
+    integer(I4B), dimension(:), allocatable, intent(inout) :: i4a
+    real(R8B), dimension(:,:), allocatable, intent(inout) :: r8x
+    !
+    ! -- local
+    type(tMultiGridArray), allocatable :: mga_read
+    type(tMultiGrid), pointer :: mg      => null()
+    type(tMultiGrid), pointer :: mg_top  => null()
+    type(tMultiGrid), pointer :: mg_bot  => null()
+    type(tMultiGrid), pointer :: mg_dist => null()
+    type(tGrid),      pointer :: g       => null()
+    type(tData), pointer :: dat => null()
+    type(tMf6Wbd), pointer :: wbd => null()
+    !
+    logical :: ltopisbot
+    !
+    real(R8B), dimension(:), allocatable :: cs_read
+    real(R8B) :: cs_min_tgt
+    !
+    real(R4B), dimension(:), allocatable :: f1d
+    real(R4B) :: mvr4, top, bot, dist, gtop, gbot, dz, f, r4v
+    !
+    integer(I4B) :: i, ierr, il, jl, ig, ir, ic, n, ncell, nr8a, m
+    !
+    integer(I1B), dimension(:), allocatable :: top_nodes 
+! ------------------------------------------------------------------------------
+    !
+    if (allocated(i4a)) deallocate(i4a)
+    if (allocated(r8x)) deallocate(r8x)
+    !
+    call disu%x_to_top_nodes(top_nodes)
+    ! 
+    allocate(mga_read)
+    call mga_read%init(this%ndat)
+    !
+    cs_min_tgt = min(bbx%cs, cs_min_rea)
+    allocate(cs_read(disu%ngrid))
+    cs_read(disu%ngrid) = cs_min_tgt
+    do ig = disu%ngrid-1, 1, -1
+      cs_read(ig) = cs_read(ig+1)*2.d0
+    end do
+    !
+    ! step 1: read the data for *ALL* the ngrid levels
+    do i = 1, this%ndat
+      dat => this%dat(i); mg => mga_read%mga(i)
+      !
+      if (dat%i_type == i_vrt) then
+        call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
+          i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4)
+      end if
+    end do
+    !
+    allocate(f1d(disu%nodes)); f1d = R4ZERO
+    !
+    select case(this%i_assign)
+    case(i_assign_intersect)
+      ierr = 0
+      if ((this%itop  <= 0).or.(this%itop  > this%ndat)) ierr = 1
+      if ((this%ibot  <= 0).or.(this%ibot  > this%ndat)) ierr = 1
+      if ((this%idist <= 0).or.(this%idist > this%ndat)) ierr = 1
+      if (ierr == 1) call errmsg('Invalid itop, ibot or idist.')
+      !
+      !if ((dmdat%ndat == 2).and.(dmdat%itop == dmdat%ibot)) then
+      !  ltopisbot = .true.
+      !else
+      !  ltopisbot = .false.
+      !end if
+      !
+      mg_top  => mga_read%mga(this%itop)
+      mg_bot  => mga_read%mga(this%ibot)
+      mg_dist => mga_read%mga(this%idist)
+      !
+      do jl = 1, disu%nlay_act
+         mg => disu%grid_mga_nod%get_mg(jl)
+         do ig = 1, mg%ngrid
+           g => mg%grid(ig)
+           do ir = 1, g%nr; do ic = 1, g%nc
+             n = g%xi4(ic,ir)
+             if (n /= g%mvi4) then
+               top  = mg_top%grid(ig)%xr4(ic,ir)
+               bot  = mg_bot%grid(ig)%xr4(ic,ir)
+               dist = mg_dist%grid(ig)%xr4(ic,ir)
+               !
+               if ((top  /= mg_top%grid(ig)%mvr4).and. &
+                   (bot  /= mg_bot%grid(ig)%mvr4).and. &
+                   (dist /= mg_dist%grid(ig)%mvr4)) then
+                 !
+                 ! make consistent
+                 if (bot > top) then
+                   call logmsg('Warning: inconsistent top/bot found, setting bot equal to top.')
+                   bot = top
+                   mg_bot%grid(ig)%xr4(ic,ir) = bot
+                 end if
+                 !
+                 if (top == bot) then
+                   ltopisbot = .true.
+                 else
+                   ltopisbot = .false.
+                 end if
+                 !
+                 gtop = disu%grid_mga_top%mga(jl)%grid(ig)%xr4(ic,ir)
+                 gbot = disu%grid_mga_bot%mga(jl)%grid(ig)%xr4(ic,ir)
+                 !
+                 if (ltopisbot) then
+                   if (top_nodes(n) == 1) then
+                     if (top >= gbot) then
+                       f1d(n) = R4ONE
+                     end if
+                   else
+                     if ((top >= gbot).and.(top < gtop)) then
+                       f1d(n) = R4ONE
+                     end if
+                   end if
+                 else
+                   dz = top - bot
+                   if (dz >= R4ZERO) then
+                     f1d(n) = calc_frac(top, bot, top_nodes(n), gtop, gbot)
+                     !
+                     ! overrule in case of top node
+                     if (top_nodes(n) == 1) then
+                       if (bot >= gtop) then
+                         f1d(n) = R4ONE
+                       end if
+                     end if
+                   end if
+                 end if
+               end if
+             end if
+           end do; end do
+         end do
+      end do
+    case(i_assign_exact_layer)
+      !
+      do jl = 1, disu%nlay_act
+        il = disu%lay_act(jl)
+         mg => disu%grid_mga_nod%get_mg(jl)
+         do ig = 1, mg%ngrid
+           g => mg%grid(ig)
+           do ir = 1, g%nr; do ic = 1, g%nc
+             n = g%xi4(ic,ir)
+             if (n /= g%mvi4) then
+               if (il == this%ilay) then
+                 f1d(n) = R4ONE
+               end if
+             end if
+           end do; end do
+         end do
+      end do
+    case(i_assign_first_layer)
+      !
+      do jl = 1, disu%nlay_act
+         mg => disu%grid_mga_nod%get_mg(jl)
+         do ig = 1, mg%ngrid
+           g => mg%grid(ig)
+           do ir = 1, g%nr; do ic = 1, g%nc
+             n = g%xi4(ic,ir)
+             if (n /= g%mvi4) then
+               if (top_nodes(n) == 1) then
+                 f1d(n) = R4ONE
+               end if
+             end if
+           end do; end do
+         end do
+      end do
+    end select
+    !
+    ! set fraction to zero when dist is zero
+    if (.true.) then
+      ncell = 0
+      do jl = 1, disu%nlay_act
+         mg => disu%grid_mga_nod%get_mg(jl)
+         do ig = 1, mg%ngrid
+           g => mg%grid(ig)
+           do ir = 1, g%nr; do ic = 1, g%nc
+             n = g%xi4(ic,ir)
+             if (n /= g%mvi4) then
+               f = f1d(n)
+               if (f > R4ZERO) then
+                 i = this%idist
+                 r4v = mga_read%mga(i)%grid(ig)%xr4(ic,ir)
+                 if (r4v == R4ZERO) then
+                   f1d(n) = R4ZERO
+                   ncell = ncell + 1
+                 end if
+               end if
+             end if
+          end do; end do
+        end do
+      end do
+      if (ncell > 0) then
+        call logmsg('Skipping '//ta([ncell])//' cells with zero value...')
+      end if
+    end if
+    !
+    ! count using the fractions and allocate
+    ncell = 0
+    do i = 1, disu%nodes
+      if (f1d(i) > R4ZERO) ncell = ncell + 1
+    end do
+    if (ncell == 0) then
+      call logmsg('No data found...')
+      ! clean up
+      if (allocated(mga_read)) then
+        call mga_read%clean()
+        deallocate(mga_read)
+      end if
+      if (allocated(i4a)) deallocate(i4a)
+      if (allocated(i4a)) deallocate(i4a)
+      
+      if (allocated(r8x)) deallocate(r8x)
+      if (allocated(f1d)) deallocate(f1d)
+      if (allocated(cs_read)) deallocate(cs_read)
+      if (allocated(top_nodes)) deallocate(top_nodes)
+      return
+    end if
+    nr8a = this%ndat
+    allocate(i4a(ncell), r8x(nr8a,ncell))
+    !
+    ! buffer the data
+    m = 0
+    do jl = 1, disu%nlay_act
+       mg => disu%grid_mga_nod%get_mg(jl)
+       do ig = 1, mg%ngrid
+         g => mg%grid(ig)
+         do ir = 1, g%nr; do ic = 1, g%nc
+           n = g%xi4(ic,ir)
+           if (n /= g%mvi4) then
+             f = f1d(n)
+             if (f > R4ZERO) then
+               m = m + 1
+               i4a(m) = n
+               do i = 1, nr8a
+                 r4v = mga_read%mga(i)%grid(ig)%xr4(ic,ir)
+                 if (i == this%idist) then
+                   r4v = r4v*f
+                 end if
+                 r8x(i,m) = real(r4v, R8B)
+               end do
+             end if
+           end if
+         end do; end do
+       end do
+    end do
+    !
+    ! check the consistency top/bot
+    if (this%itop /= this%ibot) then
+      do m = 1, ncell
+        if (r8x(this%ibot,m) > r8x(this%itop,m)) then
+          call errmsg('Inconsistent data: bot > top.')
+        end if
+      end do
+    end if
+    !
+    ! clean up
+    if (allocated(mga_read)) then
+      call mga_read%clean()
+      deallocate(mga_read)
+    end if
+    if (allocated(f1d)) deallocate(f1d)
+    if (allocated(cs_read)) deallocate(cs_read)
+    if (allocated(top_nodes)) deallocate(top_nodes)
+    !
+    return 
+  end subroutine tDataModelData_mf6_get_data_vrt_list
+  
+  subroutine tDataModelData_mf6_get_data_vrt_array(this, disu, bbx, &
+    cs_min_rea, i4a, r8a)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tDataModelData) :: this
+    type(tMF6Disu), intent(in), pointer :: disu
+    type(tBbx), intent(in) :: bbx
+    real(R8B), intent(in) :: cs_min_rea
+    integer(I4B), dimension(:), allocatable, intent(inout) :: i4a
+    real(R8B), dimension(:), allocatable, intent(inout) :: r8a
+    !
+    ! -- local
+    type(tMultiGridArray), allocatable :: mga_read
+    type(tMultiGrid), pointer :: mg      => null()
+    type(tGrid),      pointer :: g       => null()
+    type(tData), pointer :: dat => null()
+    type(tMf6Wbd), pointer :: wbd => null()
+    !
+    logical :: ltopisbot
+    !
+    real(R8B), dimension(:), allocatable :: cs_read
+    real(R8B) :: cs_min_tgt
+    !
+    real(R4B) :: mvr4, r4v
+    !
+    integer(I4B) :: i, jl, ig, ic, ir, n
+    !
+    integer(I1B), dimension(:), allocatable :: top_nodes 
+! ------------------------------------------------------------------------------
+    !
+    if (allocated(i4a)) deallocate(i4a)
+    if (allocated(r8a)) deallocate(r8a)
+    !
+    call disu%x_to_top_nodes(top_nodes)
+    ! 
+    allocate(mga_read)
+    call mga_read%init(this%ndat)
+    !
+    cs_min_tgt = min(bbx%cs, cs_min_rea)
+    allocate(cs_read(disu%ngrid))
+    cs_read(disu%ngrid) = cs_min_tgt
+    do ig = disu%ngrid-1, 1, -1
+      cs_read(ig) = cs_read(ig+1)*2.d0
+    end do
+    
+    if (this%i_assign == i_assign_first_layer) then
+      !
+      ! step 1: read the data for *ALL* the ngrid levels
+      do i = 1, this%ndat
+        dat => this%dat(i); mg => mga_read%mga(i)
+        !
+        if (dat%i_type == i_vrt) then
+          call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
+            i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4)
+        end if
+      end do
+      !
+      allocate(r8a(disu%nodes)); r8a = this%r8const
+      !
+      do jl = 1, disu%nlay_act
+         mg => disu%grid_mga_nod%get_mg(jl)
+         do ig = 1, mg%ngrid
+           g => mg%grid(ig)
+           do ir = 1, g%nr; do ic = 1, g%nc
+             n = g%xi4(ic,ir)
+             if (n /= g%mvi4) then
+               if (top_nodes(n) == 1) then
+                 r4v = mga_read%mga(1)%grid(ig)%xr4(ic,ir)
+                 r8a(n) = real(r4v,R8B)
+               end if
+             end if
+           end do; end do
+         end do
+      end do
+      !
+    else
+      call errmsg('Array output not supported for vrt input.')
+    end if
+    !
+    ! clean up
+    call mga_read%clean(); deallocate(mga_read)
+    if (allocated(cs_read)) deallocate(cs_read)
+    if (allocated(top_nodes)) deallocate(top_nodes)
+    !
+    return 
+  end subroutine tDataModelData_mf6_get_data_vrt_array
+
+  subroutine tDataModelData_mf6_get_data_vrt_array_array(this, disu, bbx, r8a)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tDataModelData) :: this
+    type(tMF6Disu), intent(in), pointer :: disu
+    type(tBbx), intent(in) :: bbx
+    real(R8B), dimension(:), allocatable, intent(inout) :: r8a
+    ! -- local
+    type(tMultiGrid), pointer :: mg   => null()
+    type(tGrid),      pointer :: g    => null()
+    type(tData),      pointer :: dat  => null()
+    type(tVrtArray),  pointer :: vrta => null()
+    type(tVrt),       pointer :: vrt  => null()
+    !
+    logical :: lconst
+    !
+    integer(I4B) :: m, il, jl, ig, ir, ic, n
+    !
+    real(R4B), dimension(:,:), allocatable :: r4x
+    real(R4B) :: mvr4, r4const, r4v
+! ------------------------------------------------------------------------------
+  
+    dat => this%dat(1); vrta => dat%vrta
+    allocate(r8a(disu%nodes)); r8a = R8ZERO
+    m = 0
+    do jl = 1, disu%nlay_act
+      il = disu%lay_act(jl)
+      !
+      mg => disu%grid_mga_nod%get_mg(jl)
+      !
+      ! read grid in the original resolution and buffer
+      call vrta%check_constant(il, lconst, r4const)
+      if (.not.lconst) then
+        vrt => vrta%get_vrt(il)
+        call vrt%read_extent_native_cs(bbx=bbx)
+        call vrt%buffer_data()
+      end if
+      !
+      do ig = 1, mg%ngrid
+        if (mg%grid_count(ig) > 0) then
+          g => mg%grid(ig)
+          if (.not.lconst) then
+            call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
+              i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+          end if
+          do ir = 1, g%nr; do ic = 1, g%nc
+            n = g%xi4(ic,ir)
+            if (n > 0) then
+              if (.not.lconst) then
+                r4v = r4x(ic,ir)
+              else
+                r4v = r4const
+              end if
+              if (r4v == mvr4) then
+                call errmsg('tQuad_mf6_write_data: array.')
+              else
+                r8a(n) = real(r4v,R8B)
+                m = m + 1
+              end if
+            end if
+          end do; end do
+        end if
+      end do
+      !
+      ! clean the vrt arrays
+      if (.not.lconst) then
+        call vrt%clean_x()
+      end if
+    end do
+    !
+    if (m /= disu%nodes) then
+      call errmsg('tQuad_mf6_write_data: array.')
+    end if
+    !
+    ! clean up
+    if (allocated(r4x)) deallocate(r4x)
+    !
+    return 
+  end subroutine tDataModelData_mf6_get_data_vrt_array_array
+  
+  subroutine tDataModelData_mf6_get_data_csv_list(this, disu, bbx, i4a, r8a)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tDataModelData) :: this
+    type(tMF6Disu), intent(in), pointer :: disu
+    type(tBbx), intent(in) :: bbx
+    integer(I4B), dimension(:), allocatable, intent(inout) :: i4a
+    real(R8B), dimension(:), allocatable, intent(inout) :: r8a
+    !
+    ! -- local
+    type(tData),      pointer :: dat  => null()
+    type(tCsv),       pointer :: csv  => null()
+    type(tMultiGrid), pointer :: mg   => null()
+    type(tGrid),      pointer :: g    => null()
+    type(tVrtArray),  pointer :: vrta => null()
+    type(tVrt),       pointer :: vrt  => null()
+    !
+    logical :: lfound, lconst
+    !
+    real(R8B), dimension(:), allocatable :: csv_x, csv_y
+    !
+    real(R4B), dimension(:,:), allocatable :: r4x, f2d
+    real(R4B), dimension(:), allocatable :: csv_top, csv_bot, csv_v, fnod
+    real(R4B) :: top, bot, gtop, gbot, f, r4const, mvr4, r4v, ftot
+    !
+    integer(I4B), dimension(:), allocatable :: csv_ilay, mapping
+    integer(I4B), dimension(:,:), allocatable :: nod2d
+    integer(I4B) :: ierr, nc, nr, nl, np, iact, ic, ir, il, jl, mp, n, m, ip, ig, i
+    !
+    integer(I1B), dimension(:), allocatable :: top_nodes
+! ------------------------------------------------------------------------------
+    if (allocated(i4a)) deallocate(i4a)
+    if (allocated(r8a)) deallocate(r8a)
+    !
+    call disu%x_to_top_nodes(top_nodes)
+    ! 
+    dat => this%dat(1); csv => dat%csv
+    ierr = 0
+    if (this%idist <= 0) ierr = 1
+    if (ierr == 1) call errmsg('Invalid idist.')
+    !
+    call csv%get_column(ic=1, r8a=csv_x)
+    call csv%get_column(ic=2, r8a=csv_y)
+    call csv%get_column(ic=this%idist, r4a=csv_v)
+    !
+    nc = size(disu%grid_x_nod,1)
+    nr = size(disu%grid_x_nod,2)
+    nl = size(disu%grid_x_nod,3)
+    !
+    select case(this%i_assign)
+    case(i_assign_exact_layer)
+      call csv%get_column(ic=this%ilay,  i4a=csv_ilay)
+      !
+      np = size(csv_x)
+      !
+      if (np == 0) then
+        call errmsg('No CSV input found.')
+      end if
+      !
+      do iact = 1, 2
+        mp = 0
+        do ip = 1, np
+          if (point_in_bb(reshape([csv_x(ip),csv_y(ip)],[2,1]), bbx)) then
+            call get_icr(ic, ir, csv_x(ip), csv_y(ip), bbx%xll, bbx%yur, disu%cs_min)
+            if (valid_icr(ic, ir, nc, nr)) then
+              do jl = 1, nl
+                il = disu%lay_act(jl)
+                n = disu%grid_x_nod(ic, ir, jl)
+                if ((n > 0).and.(csv_ilay(ip) == il)) then
+                  mp = mp + 1
+                  if (iact == 2) then
+                    i4a(mp) = n
+                    r8a(mp) = real(csv_v(ip),R8B)
+                  end if
+                end if
+              end do
+            end if
+          end if
+        end do
+        if (iact == 1) then
+          if (allocated(i4a)) deallocate(i4a)
+          if (allocated(r8a)) deallocate(r8a)
+          if (mp > 0) then
+            allocate(i4a(mp)); i4a = I4ZERO
+            allocate(r8a(mp)); r8a = R8ZERO
+          end if
+        end if
+      end do
+    !
+    case(i_assign_intersect)
+      !
+      allocate(fnod(disu%nodes))
+      fnod = R4ONE
+      !
+      if (this%itop  <= 0) ierr = 1
+      if (this%ibot  <= 0) ierr = 1
+      if (ierr == 1) call errmsg('Invalid itop, ibot.')
+
+      call csv%get_column(ic=this%itop, r4a=csv_top)
+      call csv%get_column(ic=this%ibot, r4a=csv_bot)
+      !
+      np = size(csv_x)
+      !
+      if (np == 0) then
+        call errmsg('No CSV input found.')
+      end if
+      if (allocated(i4a)) deallocate(i4a)
+      allocate(mapping(np)); mapping = 0
+      !
+      do iact = 1, 2
+        mp = 0
+        do ip = 1, np
+          if (point_in_bb(reshape([csv_x(ip),csv_y(ip)],[2,1]), bbx)) then
+            call get_icr(ic, ir, csv_x(ip), csv_y(ip), bbx%xll, bbx%yur, disu%cs_min)
+            if (valid_icr(ic, ir, nc, nr)) then
+              lfound = .false.
+              do il = 1, nl
+                n = disu%grid_x_nod(ic, ir, il)
+                if (n > 0) then
+                  if (.not.lfound) then
+                    mp = mp + 1
+                    mapping(mp) = ip ! mapping
+                    lfound = .true.
+                  end if
+                  if (iact == 2) then
+                    top = csv_top(ip); bot = csv_bot(ip)
+                    gtop = disu%top(n); gbot = disu%bot(n)
+                    f = calc_frac(top, bot, top_nodes(n), gtop, gbot)
+                    f2d(mp,il) = f
+                    if (this%ilay0_sfac) then
+                      f2d(mp,il) = f2d(mp,il)*fnod(n)*(gtop-gbot) !fraction KD
+                    end if
+                    nod2d(mp,il) = n
+                  end if
+                end if
+              end do
+            end if
+          end if
+        end do
+        if (iact == 1) then
+          if (allocated(f2d)) deallocate(f2d)
+          if (allocated(nod2d)) deallocate(nod2d)
+          if (mp > 0) then
+            allocate(f2d(mp,nl)); f2d = R4ZERO
+            allocate(nod2d(mp,nl)); nod2d = 0
+            !
+            if (this%ilay0_sfac) then
+              dat => this%dat(1); vrta => dat%vrta
+              call vrta%init()
+              m = 0
+              do jl = 1, disu%nlay_act
+                il = disu%lay_act(jl)
+                !
+                mg => disu%grid_mga_nod%get_mg(jl)
+                !
+                ! read grid in the original resolution and buffer
+                call vrta%check_constant(il, lconst, r4const)
+                if (.not.lconst) then
+                  vrt => vrta%get_vrt(il)
+                  call vrt%read_extent_native_cs(bbx=bbx)
+                  call vrt%buffer_data()
+                end if
+                !
+                do ig = 1, mg%ngrid
+                  if (mg%grid_count(ig) > 0) then
+                    g => mg%grid(ig)
+                    if (.not.lconst) then
+                      call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
+                        i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+                    end if
+                    do ir = 1, g%nr; do ic = 1, g%nc
+                      n = g%xi4(ic,ir)
+                      if (n > 0) then
+                        if (.not.lconst) then
+                          r4v = r4x(ic,ir)
+                        else
+                          r4v = r4const
+                        end if
+                        if (r4v == mvr4) then
+                          call errmsg('tQuad_mf6_write_data: array.')
+                        else
+                          fnod(n) = r4v
+                          m = m + 1
+                        end if
+                      end if
+                    end do; end do
+                  end if
+                end do
+                !
+                ! clean the vrt arrays
+                if (.not.lconst) then
+                  call vrt%clean_x()
+                end if
+              end do
+              !
+              if (m /= disu%nodes) then
+                call errmsg('tQuad_mf6_write_data: array.')
+              end if
+              !
+            end if
+          end if
+        end if
+      end do
+      !
+      ! scale the fractions to 1
+      do i = 1, mp
+        ftot = sum(f2d(i,:))
+        do il = 1, nl
+          f2d(i,il) = f2d(i,il)/(ftot+R4TINY)
+        end do
+      end do
+      if (.false.) then
+        do i = 1, mp
+          write(*,*) 'sum frac: ',sum(f2d(i,:))
+        end do
+      end if
+      !
+      ! count and buffer
+      do iact = 1, 2
+        n = 0
+        do il = 1, nl
+          do i = 1, mp
+            f = f2d(i,il)
+            if (f > R4ZERO) then
+              ip = mapping(i)
+              if (csv_v(ip) /= R4ZERO) then
+                n = n + 1
+                if (iact == 2) then
+                  i4a(n) = nod2d(i,il)
+                  ip = mapping(i)
+                  r8a(n) = f*csv_v(ip)
+                end if
+              end if
+            end if
+          end do
+        end do
+        if (iact == 1) then
+          if (n > 0) then
+            if (allocated(i4a)) deallocate(i4a)
+            if (allocated(r8a)) deallocate(r8a)
+            allocate(i4a(n), r8a(n))
+          end if
+        end if
+      end do
+      !
+    case(i_assign_first_layer)
+      call errmsg('Assigned to first layer is not supported for CSV input.')
+    end select
+    !
+    ! clean up
+    if (allocated(top_nodes)) deallocate(top_nodes)
+    if (allocated(csv_x))     deallocate(csv_x)
+    if (allocated(csv_y))     deallocate(csv_y)
+    if (allocated(csv_v))     deallocate(csv_v)
+    if (allocated(csv_ilay))  deallocate(csv_ilay)
+    if (allocated(fnod))      deallocate(fnod)
+    if (allocated(csv_top))   deallocate(csv_top)
+    if (allocated(csv_bot))   deallocate(csv_bot)
+    if (allocated(mapping))   deallocate(mapping)
+    if (allocated(f2d))       deallocate(f2d)
+    if (allocated(nod2d))     deallocate(nod2d)
+    if (allocated(r4x))       deallocate(r4x)
+    !
+    return
+  end subroutine tDataModelData_mf6_get_data_csv_list
   
   subroutine tQuad_mf6_write_data(this)
 ! ******************************************************************************

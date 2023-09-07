@@ -12,12 +12,14 @@ module main_module
     i_dscl_nointp, i_dscl_intp
   !
   use quad2dModule, only: tQuads, tQuad, tIntf, tNbrIntf, &
-    tLayerModels, tLayerModel, tDataModels, tDataModel, &
+    tLayerModels, tLayerModel, tDataModels, tDataModel, tDataModelData, &
     tProps, get_number_of_levels, get_refinement_level, &
     i_lid, i_gid, i_i_graph, i_lay_mod,  &
     i_tgt_cs_min, i_tgt_cs_min_lay_beg, i_tgt_cs_min_lay_end, i_tgt_cs_min_dz_top, &
-    i_tgt_cs_max, i_head, n_prop_field
+    i_tgt_cs_max, i_head, i_merge, n_prop_field, &
+    tMF6Disu, mf6_data_write, tMF6Exchange
   !
+  use mf6_wbd_mod, only: tMf6Wbd, MAX_NR_CSV
   use metis_module, only: tMetis
   
   implicit none
@@ -44,7 +46,7 @@ module main_module
   type(tBbX) :: bbx_t
   !
   character(len=MXSLEN), dimension(:), allocatable :: args
-  character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_out_csv, f_part_csv
+  character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_in_csv_merge, f_out_csv, f_part_csv
   character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post
   character(len=MXSLEN) :: f_mod_def_inp, f_lay_mod_csv, fp
   character(len=MXSLEN) :: d_in, uuid_in
@@ -183,9 +185,13 @@ subroutine quad_settings()
     call ini%get_val(sect, 'i_i_graph_field', cv=fields(i_i_graph), cv_def='i_i_graph')
     !
     call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
-  case('grid_gen')
+  case('grid_gen','grid_gen_merge')
     !=========!
-    run_opt = 4
+    if (sect == 'grid_gen') then
+      run_opt = 4
+    else
+      run_opt = 17
+    end if
     !=========!
     call ini%get_val(sect, 'write_props', l4v=lwrite_props, l4v_def=.true.)
     call ini%get_val(sect, 'overwrite_props', l4v=loverwrite_props, l4v_def=.false.)
@@ -211,21 +217,31 @@ subroutine quad_settings()
     call ini%get_val(sect, 'tgt_cs_max_field',         cv=fields(i_tgt_cs_max))
     call ini%get_val(sect, 'tgt_cs_min_lay_beg_field', cv=fields(i_tgt_cs_min_lay_beg), cv_def='')
     call ini%get_val(sect, 'tgt_cs_min_lay_end_field', cv=fields(i_tgt_cs_min_lay_end), cv_def='')
-    call ini%get_val(sect, 'tgt_cs_min_dz_top_field', cv=fields(i_tgt_cs_min_dz_top), cv_def='')
+    call ini%get_val(sect, 'tgt_cs_min_dz_top_field',  cv=fields(i_tgt_cs_min_dz_top), cv_def='')
     !
     call ini%get_val(sect, 'mod_root_dir', cv=mod_root_dir)
     call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='gid')
     !
     call ini%get_val(sect, 'write_disu', l4v=lwrite_disu, l4v_def=.true.)
     !
-  case('mf6_xch_write')
-    !=========!
-    run_opt = 5
+    if (run_opt == 17) then
+      call ini%get_val(sect, 'i_merge', cv=fields(i_merge))
+    end if
+    !
+  case('mf6_xch_write','mf6_xch_write_merge')
+    if (sect == 'mf6_xch_write') then
+      run_opt = 5
+    else
+      run_opt = 19
+    end if
     !=========!
     call ini%get_val(sect, 'd_in',    cv=d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
+    if (run_opt == 19) then
+      call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge)
+    end if
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
     !
     call ini%get_val(sect, 'xch_root_dir', cv=xch_root_dir)
@@ -236,24 +252,28 @@ subroutine quad_settings()
     call ini%get_val(sect, 'i_i_graph_field', cv=fields(i_i_graph), cv_def='i_i_graph')
     !
     call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
-  case('mf6_data_write')
-    !=========!
-    run_opt = 6
-    !=========!
+  case('mf6_data_write', 'mf6_data_write_merge')
+    if (sect == 'mf6_data_write') then
+      run_opt = 6
+    else
+      run_opt = 18
+    end if
     call ini%get_val(sect, 'd_in',    cv=d_in)
     call ini%get_val(sect, 'd_log',   cv=d_log, cv_def='')
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
+    if (run_opt == 18) then
+      call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge)
+    end if
     !
     call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     !
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
     call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
+    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
     !
-    call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
-    
     call ini%get_val(sect, 'mod_root_dir', cv=mod_root_dir)
     call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='')
   case('partition')
@@ -285,6 +305,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
+    call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge, cv_def='')
     !
     call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
@@ -761,304 +782,304 @@ subroutine quad_full_grid_part()
   return
 end subroutine quad_full_grid_part
 
-subroutine quad_grid_balancing_old()
-! ******************************************************************************
-!
-!    SPECIFICATIONS:
-! ------------------------------------------------------------------------------  
-! -- local
-  !
-  logical, parameter :: lwriteximbal = .true.
-  !
-  type(tQuad), pointer :: q_new => null()
-  type(tBb)  :: bbi_gid, bb_new
-  type(tBbX) :: bbx_gid, bbx_hid, bbx_q
-  type(tHdr), pointer :: hdrg_hid => null()
-  type(tHdrHdr), pointer :: hdr => null()
-  type(tCSV), pointer    :: csv => null()
-  type(tMetis), pointer :: met => null()
-  !
-  logical :: lgidfirst, ldone, lmetis, lfirst
-  character(len=MXSLEN) :: f
-  integer(I4B) :: weight_mv, gid_max_loc, iter, j
-  integer(I4B) :: lid_new, gid_new, iact, nact, np_eval, d_np, nmet, np_met
-  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p
-  integer(I4B), dimension(:,:), allocatable :: mask, part, xid_org
-  integer(I4B), dimension(:,:), allocatable :: weight, qweight
-  integer(I4B), dimension(:), allocatable :: gid_first
-  integer(I4B), dimension(:), allocatable :: gids_new
-  real(R4B), dimension(:), allocatable :: wgt_sort
-  real(R4B), dimension(:,:), allocatable :: ximbal
-  real(R8B) :: wgt_avg, wgt_tgt, wgt_tot, wgt_q, imbal
-! ------------------------------------------------------------------------------
-  !
-  allocate(hdrg_gid)
-  call hdrg_gid%read_full_grid(f_gid_in)
-  call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
-  allocate(xid_org, source=xid)
-  nc =  size(xid,1); nr = size(xid,2)
-  !
-  ! read the weights
-  if (len_trim(f_weight) > 0) then
-    allocate(hdrg)
-    call hdrg%read_full_grid(f_weight)
-    call hdrg%get_grid(xi4=weight, mvi4=weight_mv)
-    call hdrg%clean(); deallocate(hdrg); hdrg => null()
-  else
-    allocate(weight(nc,nr)); weight = 1
-  end if
-  !
-  if (len_trim(gid_first_num) > 0) then
-    lgidfirst = .true.
-    call parse_line(s=gid_first_num, i4a=gid_first, token_in=',')
-  else
-    lgidfirst = .false.
-  end if
-  !
-  ! set bbi and bbx for gid
-  bbi_gid%ic0 = 1;   bbi_gid%ic1 = nc
-  bbi_gid%ir0 = 1;   bbi_gid%ir1 = nr
-  bbi_gid%ncol = nc; bbi_gid%nrow = nr
-  hdr => hdrg_gid%hdr; call hdr%get_bbx(bbx_gid)
-  xll = bbx_gid%xll; yll = bbx_gid%yll; cs_gid = bbx_gid%cs
-  call bbo%set(prent_bbi=bbi_gid, prent_bbx=bbx_gid)
-  !
-  ! determine the global ids and bounding box
-  allocate(bb_gid(gid_max), gids(gid_max), g2lid(gid_max))
-  gids = 0; g2lid = 0
-  do gid = 1, gid_max
-    bb => bb_gid(gid)
-    call bb%init()
-  end do
-  do ir = 1, nr; do ic = 1, nc
-    gid = xid(ic,ir)
-    if (gid /= xid_mv) then
-      gids(gid) = 1
-      bb => bb_gid(gid)
-      bb%ic0 = min(bb%ic0, ic); bb%ic1 = max(bb%ic1, ic)
-      bb%ir0 = min(bb%ir0, ir); bb%ir1 = max(bb%ir1, ir)
-      bb%ncol = bb%ic1 - bb%ic0 + 1; bb%nrow = bb%ir1 - bb%ir0 + 1
-    end if
-  end do; enddo
-  !
-  gid_max_loc = maxval(xid)
-  nlid = sum(gids)
-  if (nlid > gid_max) then
-    call errmsg('Increase gid_max.')
-  end if
-  !
-  d_np = 1000; lfirst = .true.; iter = 0
-  do iter = 1, max_iter
-    !
-    gid_new = gid_max_loc
-    if (allocated(xid)) deallocate(xid)
-    allocate(xid, source=xid_org)
-    allocate(xq)
-    call xq%init(nlid, gid_max)
-    !
-    lid = 0; wgt_tot = R8ZERO
-    do gid = 1, gid_max
-      if (gids(gid) == 1) then
-        lid = lid + 1
-        g2lid(gid) = lid
-        q => xq%get_quad(lid)
-        bb => bb_gid(gid) ! local bounding box
-        bbx%xll = xll + (bb%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb%ir1)*cs_gid
-        bbx%xur = bbx%xll + bb%ncol*cs_gid; bbx%yur = bbx%yll + bb%nrow*cs_gid
-        bbx%cs = cs_gid
-        call bbo%set(child_bbi=bb, child_bbx=bbx)
-        call q%init(gid=gid, lid=lid, bbo=bbo)
-        call get_mask(xid, gid, bb, mask)
-        if (allocated(qweight)) deallocate(qweight)
-        allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
-        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-          if (mask(jc,jr) > 0) then
-            qweight(jc,jr) = weight(ic,ir)
-          end if
-        end do; end do;
-        call q%calc_prop(mask=mask, weight=qweight)
-        call q%get_prop(weight=wgt_q)
-        wgt_tot = wgt_tot + wgt_q
-      end if
-    end do
-    !
-    np_eval = xq%get_number_active()
-    np_eval = np_eval + (iter-1)*d_np
-    wgt_avg = wgt_tot/np_eval; wgt_tgt = tgt_imbal * wgt_avg
-    !
-    ldone = .true.
-    n = xq%n; lid_new = n; nmet = 0; np_met = 0
-    do lid = 1, n
-      q => xq%get_quad(lid)
-      if (q%get_flag(active=LDUM)) then
-        call q%get_prop(weight=wgt_q)
-        !
-        lmetis = .false.
-        if (wgt_q > wgt_tgt) then
-          np_full = nint(wgt_q/wgt_tgt)
-          np_full = max(2,np_full)
-          if (np_full > 1) then
-            lmetis = .true.
-          end if
-        end if
-        if (lmetis) then
-          ldone = .false.
-          ! number of parts
-          nmet = nmet + 1
-          np_met = np_met + np_full - 1
-          !
-          call q%get_bb(child_bbi=bb)
-          call get_mask(xid, q%gid, bb, mask)
-          if (allocated(qweight)) deallocate(qweight)
-          allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
-          do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-            jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-            if (mask(jc,jr) > 0) then
-              qweight(jc,jr) = weight(ic,ir)
-            end if
-          end do; end do;
-          !
-          ! full grid METIS
-          allocate(met)
-          call met%init(qweight, np_full)
-          call met%set_opts()
-          call met%recur(verbose=.true.)
-          if (allocated(part)) deallocate(part)
-          allocate(part,source=mask)
-          call met%set_ids(part)
-          call met%clean(); deallocate(met); met => null()
-          !
-          do ip = 1, np_full
-            lid_new = lid_new + 1; gid_new = gid_new + 1
-            q_new => xq%get_quad(lid_new)
-            call bb_new%init()
-            do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-              jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-              p = part(jc,jr)
-              if (p == ip) then
-               ! determine the new bounding box
-                bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
-                bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
-                bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
-                if (xid(ic,ir) /= q%gid) then
-                  call errmsg('quad_sub_grid_part: program error.')
-                else
-                  xid(ic,ir) = gid_new
-                end if
-              end if 
-            end do; end do
-            !
-            bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
-            bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
-            bbx%cs = cs_gid
-            call bbo%set(child_bbi=bb_new, child_bbx=bbx)
-            call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
-            if (q%gid_prent > 0) then
-              call q_new%set(hlev=q%hlev, gid_prent=q%gid_prent, lid_prent=q%lid_prent)
-            else
-              call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
-            end if
-            call get_mask(xid, gid_new, bb_new, mask)
-            if (allocated(qweight)) deallocate(qweight)
-            allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
-            do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
-              jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
-              if (mask(jc,jr) > 0) then
-                qweight(jc,jr) = weight(ic,ir)
-              end if
-            end do; end do;
-            call q_new%calc_prop(mask=mask, weight=qweight)
-            xq%n = lid_new
-          end do !ip
-          !
-          call q%set_flag(active=.false.)
-        end if
-      end if
-    end do
-    ! 
-    call logmsg('***** iteration '//ta([iter])//' *****')
-    call logmsg('Number of times METIS was called: '//ta([nmet]))
-    call logmsg('Number of new METIS parts:        '//ta([np_met]))
-    call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
-    call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
-    if (ldone) then
-      call logmsg('Nothing to be done...')
-      exit
-    end if
-    if (imbal <= tgt_imbal) then
-      call logmsg('Target load imbalance reached...')
-      exit
-    end if
-    if (iter >= max_iter) then
-      call logmsg('No convergence, maximum iterations reached: '//ta([max_iter]))
-      exit
-    end if
-    if (np >= max_np) then
-      call logmsg('Maximum number of partitions reached: '//ta([max_np]))
-      exit
-    end if
-    !
-    ! clean up
-    call xq%clean(); deallocate(xq)
-  end do
-  
-  ! renumber
-  allocate(gids_new(xq%n)); gids_new = 0
-  n = 0
-  !
-  do j = 1, size(gid_first)
-     gid = gid_first(j)
-     call logmsg('***** gid = '//ta([gid])//' beg: '//ta([n+1]))
-     do lid = 1, xq%n
-       q => xq%get_quad(lid)
-       if (q%get_flag(active=LDUM)) then
-         if (q%gid_prent == gid) then
-           n = n + 1
-           gids_new(q%gid) = n
-         end if
-       end if
-     end do
-     call logmsg('***** gid = '//ta([gid])//' end: '//ta([n]))
-  end do
-  !
-  do lid = 1, xq%n
-    q => xq%get_quad(lid)
-    if (q%get_flag(active=LDUM)) then
-      if (gids_new(q%gid) == 0) then
-        n = n + 1
-        gids_new(q%gid) = n
-      end if
-    end if
-  end do
-  !
-  ! replace the global id
-  do lid = 1, xq%n
-    q => xq%get_quad(lid)
-    if (q%get_flag(active=LDUM)) then
-      gid = gids_new(q%gid)
-      call q%get_bb(child_bbi=bb)
-      call get_mask(xid, q%gid, bb, mask)
-      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-        if (mask(jc,jr) == 1) then
-          xid(ic,ir) = -gid
-        end if
-      end do; end do
-    end if
-  end do
-  xid = abs(xid)
-  !
-  call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
-  call hdrg_gid%write(f_gid_out)
-  if (lwriteximbal) then
-    call grid_load_imbalance(xid, xid_mv, weight, imbal, np, ximbal)
-    f = trim(f_gid_out)//'_imbal'
-    call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
-  end if
-  !
-  return
-end subroutine quad_grid_balancing_old
+!subroutine quad_grid_balancing()
+!! ******************************************************************************
+!!
+!!    SPECIFICATIONS:
+!! ------------------------------------------------------------------------------  
+!! -- local
+!  !
+!  logical, parameter :: lwriteximbal = .true.
+!  !
+!  type(tQuad), pointer :: q_new => null()
+!  type(tBb)  :: bbi_gid, bb_new
+!  type(tBbX) :: bbx_gid, bbx_hid, bbx_q
+!  type(tHdr), pointer :: hdrg_hid => null()
+!  type(tHdrHdr), pointer :: hdr => null()
+!  type(tCSV), pointer    :: csv => null()
+!  type(tMetis), pointer :: met => null()
+!  !
+!  logical :: lgidfirst, ldone, lmetis, lfirst
+!  character(len=MXSLEN) :: f
+!  integer(I4B) :: weight_mv, gid_max_loc, iter, j
+!  integer(I4B) :: lid_new, gid_new, iact, nact, np_eval, d_np, nmet, np_met
+!  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p
+!  integer(I4B), dimension(:,:), allocatable :: mask, part, xid_org
+!  integer(I4B), dimension(:,:), allocatable :: weight, qweight
+!  integer(I4B), dimension(:), allocatable :: gid_first
+!  integer(I4B), dimension(:), allocatable :: gids_new
+!  real(R4B), dimension(:), allocatable :: wgt_sort
+!  real(R4B), dimension(:,:), allocatable :: ximbal
+!  real(R8B) :: wgt_avg, wgt_tgt, wgt_tot, wgt_q, imbal
+!! ------------------------------------------------------------------------------
+!  !
+!  allocate(hdrg_gid)
+!  call hdrg_gid%read_full_grid(f_gid_in)
+!  call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
+!  allocate(xid_org, source=xid)
+!  nc =  size(xid,1); nr = size(xid,2)
+!  !
+!  ! read the weights
+!  if (len_trim(f_weight) > 0) then
+!    allocate(hdrg)
+!    call hdrg%read_full_grid(f_weight)
+!    call hdrg%get_grid(xi4=weight, mvi4=weight_mv)
+!    call hdrg%clean(); deallocate(hdrg); hdrg => null()
+!  else
+!    allocate(weight(nc,nr)); weight = 1
+!  end if
+!  !
+!  if (len_trim(gid_first_num) > 0) then
+!    lgidfirst = .true.
+!    call parse_line(s=gid_first_num, i4a=gid_first, token_in=',')
+!  else
+!    lgidfirst = .false.
+!  end if
+!  !
+!  ! set bbi and bbx for gid
+!  bbi_gid%ic0 = 1;   bbi_gid%ic1 = nc
+!  bbi_gid%ir0 = 1;   bbi_gid%ir1 = nr
+!  bbi_gid%ncol = nc; bbi_gid%nrow = nr
+!  hdr => hdrg_gid%hdr; call hdr%get_bbx(bbx_gid)
+!  xll = bbx_gid%xll; yll = bbx_gid%yll; cs_gid = bbx_gid%cs
+!  call bbo%set(prent_bbi=bbi_gid, prent_bbx=bbx_gid)
+!  !
+!  ! determine the global ids and bounding box
+!  allocate(bb_gid(gid_max), gids(gid_max), g2lid(gid_max))
+!  gids = 0; g2lid = 0
+!  do gid = 1, gid_max
+!    bb => bb_gid(gid)
+!    call bb%init()
+!  end do
+!  do ir = 1, nr; do ic = 1, nc
+!    gid = xid(ic,ir)
+!    if (gid /= xid_mv) then
+!      gids(gid) = 1
+!      bb => bb_gid(gid)
+!      bb%ic0 = min(bb%ic0, ic); bb%ic1 = max(bb%ic1, ic)
+!      bb%ir0 = min(bb%ir0, ir); bb%ir1 = max(bb%ir1, ir)
+!      bb%ncol = bb%ic1 - bb%ic0 + 1; bb%nrow = bb%ir1 - bb%ir0 + 1
+!    end if
+!  end do; enddo
+!  !
+!  gid_max_loc = maxval(xid)
+!  nlid = sum(gids)
+!  if (nlid > gid_max) then
+!    call errmsg('Increase gid_max.')
+!  end if
+!  !
+!  d_np = 1000; lfirst = .true.; iter = 0
+!  do iter = 1, max_iter
+!    !
+!    gid_new = gid_max_loc
+!    if (allocated(xid)) deallocate(xid)
+!    allocate(xid, source=xid_org)
+!    allocate(xq)
+!    call xq%init(nlid, gid_max)
+!    !
+!    lid = 0; wgt_tot = R8ZERO
+!    do gid = 1, gid_max
+!      if (gids(gid) == 1) then
+!        lid = lid + 1
+!        g2lid(gid) = lid
+!        q => xq%get_quad(lid)
+!        bb => bb_gid(gid) ! local bounding box
+!        bbx%xll = xll + (bb%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb%ir1)*cs_gid
+!        bbx%xur = bbx%xll + bb%ncol*cs_gid; bbx%yur = bbx%yll + bb%nrow*cs_gid
+!        bbx%cs = cs_gid
+!        call bbo%set(child_bbi=bb, child_bbx=bbx)
+!        call q%init(gid=gid, lid=lid, bbo=bbo)
+!        call get_mask(xid, gid, bb, mask)
+!        if (allocated(qweight)) deallocate(qweight)
+!        allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!          if (mask(jc,jr) > 0) then
+!            qweight(jc,jr) = weight(ic,ir)
+!          end if
+!        end do; end do;
+!        call q%calc_prop(mask=mask, weight=qweight)
+!        call q%get_prop(weight=wgt_q)
+!        wgt_tot = wgt_tot + wgt_q
+!      end if
+!    end do
+!    !
+!    np_eval = xq%get_number_active()
+!    np_eval = np_eval + (iter-1)*d_np
+!    wgt_avg = wgt_tot/np_eval; wgt_tgt = tgt_imbal * wgt_avg
+!    !
+!    ldone = .true.
+!    n = xq%n; lid_new = n; nmet = 0; np_met = 0
+!    do lid = 1, n
+!      q => xq%get_quad(lid)
+!      if (q%get_flag(active=LDUM)) then
+!        call q%get_prop(weight=wgt_q)
+!        !
+!        lmetis = .false.
+!        if (wgt_q > wgt_tgt) then
+!          np_full = nint(wgt_q/wgt_tgt)
+!          np_full = max(2,np_full)
+!          if (np_full > 1) then
+!            lmetis = .true.
+!          end if
+!        end if
+!        if (lmetis) then
+!          ldone = .false.
+!          ! number of parts
+!          nmet = nmet + 1
+!          np_met = np_met + np_full - 1
+!          !
+!          call q%get_bb(child_bbi=bb)
+!          call get_mask(xid, q%gid, bb, mask)
+!          if (allocated(qweight)) deallocate(qweight)
+!          allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!          do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!            jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!            if (mask(jc,jr) > 0) then
+!              qweight(jc,jr) = weight(ic,ir)
+!            end if
+!          end do; end do;
+!          !
+!          ! full grid METIS
+!          allocate(met)
+!          call met%init(qweight, np_full)
+!          call met%set_opts()
+!          call met%recur(verbose=.true.)
+!          if (allocated(part)) deallocate(part)
+!          allocate(part,source=mask)
+!          call met%set_ids(part)
+!          call met%clean(); deallocate(met); met => null()
+!          !
+!          do ip = 1, np_full
+!            lid_new = lid_new + 1; gid_new = gid_new + 1
+!            q_new => xq%get_quad(lid_new)
+!            call bb_new%init()
+!            do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!              jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!              p = part(jc,jr)
+!              if (p == ip) then
+!               ! determine the new bounding box
+!                bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
+!                bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
+!                bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
+!                if (xid(ic,ir) /= q%gid) then
+!                  call errmsg('quad_sub_grid_part: program error.')
+!                else
+!                  xid(ic,ir) = gid_new
+!                end if
+!              end if 
+!            end do; end do
+!            !
+!            bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
+!            bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
+!            bbx%cs = cs_gid
+!            call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+!            call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+!            if (q%gid_prent > 0) then
+!              call q_new%set(hlev=q%hlev, gid_prent=q%gid_prent, lid_prent=q%lid_prent)
+!            else
+!              call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
+!            end if
+!            call get_mask(xid, gid_new, bb_new, mask)
+!            if (allocated(qweight)) deallocate(qweight)
+!            allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
+!            do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
+!              jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
+!              if (mask(jc,jr) > 0) then
+!                qweight(jc,jr) = weight(ic,ir)
+!              end if
+!            end do; end do;
+!            call q_new%calc_prop(mask=mask, weight=qweight)
+!            xq%n = lid_new
+!          end do !ip
+!          !
+!          call q%set_flag(active=.false.)
+!        end if
+!      end if
+!    end do
+!    ! 
+!    call logmsg('***** iteration '//ta([iter])//' *****')
+!    call logmsg('Number of times METIS was called: '//ta([nmet]))
+!    call logmsg('Number of new METIS parts:        '//ta([np_met]))
+!    call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
+!    call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
+!    if (ldone) then
+!      call logmsg('Nothing to be done...')
+!      exit
+!    end if
+!    if (imbal <= tgt_imbal) then
+!      call logmsg('Target load imbalance reached...')
+!      exit
+!    end if
+!    if (iter >= max_iter) then
+!      call logmsg('No convergence, maximum iterations reached: '//ta([max_iter]))
+!      exit
+!    end if
+!    if (np >= max_np) then
+!      call logmsg('Maximum number of partitions reached: '//ta([max_np]))
+!      exit
+!    end if
+!    !
+!    ! clean up
+!    call xq%clean(); deallocate(xq)
+!  end do
+!  
+!  ! renumber
+!  allocate(gids_new(xq%n)); gids_new = 0
+!  n = 0
+!  !
+!  do j = 1, size(gid_first)
+!     gid = gid_first(j)
+!     call logmsg('***** gid = '//ta([gid])//' beg: '//ta([n+1]))
+!     do lid = 1, xq%n
+!       q => xq%get_quad(lid)
+!       if (q%get_flag(active=LDUM)) then
+!         if (q%gid_prent == gid) then
+!           n = n + 1
+!           gids_new(q%gid) = n
+!         end if
+!       end if
+!     end do
+!     call logmsg('***** gid = '//ta([gid])//' end: '//ta([n]))
+!  end do
+!  !
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    if (q%get_flag(active=LDUM)) then
+!      if (gids_new(q%gid) == 0) then
+!        n = n + 1
+!        gids_new(q%gid) = n
+!      end if
+!    end if
+!  end do
+!  !
+!  ! replace the global id
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    if (q%get_flag(active=LDUM)) then
+!      gid = gids_new(q%gid)
+!      call q%get_bb(child_bbi=bb)
+!      call get_mask(xid, q%gid, bb, mask)
+!      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!        if (mask(jc,jr) == 1) then
+!          xid(ic,ir) = -gid
+!        end if
+!      end do; end do
+!    end if
+!  end do
+!  xid = abs(xid)
+!  !
+!  call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
+!  call hdrg_gid%write(f_gid_out)
+!  if (lwriteximbal) then
+!    call grid_load_imbalance(xid, xid_mv, weight, imbal, np, ximbal)
+!    f = trim(f_gid_out)//'_imbal'
+!    call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
+!  end if
+!  !
+!  return
+!end subroutine quad_grid_balancing
 
 subroutine quad_grid_balancing()
 ! ******************************************************************************
@@ -2708,11 +2729,16 @@ subroutine quad_init_models(set_dat_mod)
     !
     if (set_dat_mod_loc) then
       dat_mod => dat_mods%dat_mods(i)
-      call dat_mod%init(keys(i), fdat(1), fdat(2))
+      call dat_mod%init(keys(i), fdat(1), fdat(2), n_inp_mod)
     end if
   end do
   !
   close(iu)
+  !
+  ! determine the unique mappings
+  if (set_dat_mod_loc) then
+    call xq%dat_mods%create_uni_map()
+  end if
   !
   !allocate(fdat(2))
   !do i = 1, n_inp_mod
@@ -2824,7 +2850,256 @@ subroutine quad_mf6_xch_write()
   return
 end subroutine quad_mf6_xch_write
 
-subroutine quad_mf6_data_write()
+subroutine quad_mf6_xch_write_merge()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- local
+  type(tQuad), pointer :: q_m1 => null(), q_m2 => null()
+  type(tCsv), pointer :: csv => null()
+  type(tIntf), pointer :: intf => null(), intf_m1 => null(), intf_m2 => null()
+  type(tNbrIntf), pointer :: nintf => null(), nintf_m1 => null(), nintf_m2 => null()
+  type(tMf6Wbd), pointer :: wbd => null()
+  type(tMF6Exchange), pointer :: xch_m1 => null(), xch_m2 => null(), xch_im => null()
+  !
+  logical :: lfound, lskip
+  !
+  character(len=1) :: slash
+  character(len=MXSLEN) :: d, s, id, f
+  !
+  integer(I4B) :: lid, im, jm, km, nim, inbr, jnbr, lid_nbr, iact, nlid_nbr
+  integer(I4B) :: ihc_min, ihc_max, n1, n2, iexg, imm, jmm
+  integer(I4B), dimension(:), allocatable :: im_arr, lid2im_arr, lid_arr, lid_arr_inv
+  integer(I4B), dimension(:), allocatable :: lid_arr_nbr, lid_arr_nbr_inv, nbr_im
+  integer(I4B), dimension(:), allocatable :: nodes_arr, lid2im_lidx, lid2jm_lidx
+  integer(I4B), dimension(:), allocatable :: im_nodes_offset, jm_nodes_offset
+  integer(I4B), dimension(:), allocatable :: i4w1, i4w2
+  !
+  real(R8B) :: cl1_min, cl1_max, cl2_min, cl2_max, hwva_min, hwva_max
+! ------------------------------------------------------------------------------
+  !
+  ! create the directory for output
+  d = xch_root_dir
+  call create_dir(d, .true.)
+  !
+  allocate(wbd)
+  call wbd%init(f_out_csv)
+  !
+  ! get the nodes array for all quads
+  call xq%props%csv%get_column(key='lid', i4a=i4w1)
+  call xq%props%csv%get_column(key='nodes', i4a=i4w2)
+  allocate(nodes_arr(xq%n)); nodes_arr = 0
+  do i = 1, size(i4w1)
+    lid = i4w1(i)
+    nodes_arr(lid) = i4w2(i)
+  end do
+  deallocate(i4w1, i4w2)
+  !
+  allocate(csv)
+  call csv%read(f_in_csv_merge)
+  call csv%get_column(key='lid', i4a=im_arr)
+  nim = size(im_arr)
+  !
+  allocate(lid2im_arr(xq%n)); lid2im_arr = 0
+  !
+  ! first, flag the quads and set im
+  do im = 1, nim
+    ! get the local lids
+    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
+    call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+    do i = 1, nlid
+      lid = lid_arr(i)
+      lid2im_arr(lid) = im
+    end do
+  end do
+  !
+  allocate(nbr_im(nim))
+  do im = 1, nim
+    ! create the mappings
+    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
+    call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+    allocate(im_nodes_offset(nlid), lid_arr_inv(xq%n)); lid_arr_inv = 0
+    n = 0
+    do i = 1, nlid
+      lid = lid_arr(i)
+      lid_arr_inv(lid) = i
+      im_nodes_offset(i) = n
+      n = n + nodes_arr(lid)
+    end do
+    !
+    ! determine the neighbor
+    nbr_im = 0
+    do i = 1, nlid
+      lid = lid_arr(i)
+      q => xq%get_quad(lid); intf => q%intf
+      do inbr = 1, intf%n_nbr ! loop over interfaces
+        nintf => intf%nbr_intf(inbr)
+        lid_nbr = nintf%nbr_lid
+        jm = lid2im_arr(lid_nbr)
+        if ((jm > 0).and.(jm > im)) then ! jm > im: symmetric part
+          nbr_im(jm) = 1
+        end if
+      end do
+    end do
+    !
+    ! loop over the neighbors
+    slash = get_slash()
+    do jm = 1, nim
+      if (nbr_im(jm) == 1) then
+        !
+        ! create the mappings for the neighbor
+        call csv%get_val(ir=jm, ic=csv%get_col('lid_merged'), cv=s)
+        call parse_line(s=s, i4a=lid_arr_nbr, token_in=';'); nlid_nbr = size(lid_arr_nbr)
+        allocate(jm_nodes_offset(nlid_nbr), lid_arr_nbr_inv(xq%n)); lid_arr_nbr_inv = 0
+        n = 0
+        do i = 1, nlid_nbr
+          lid = lid_arr_nbr(i)
+          lid_arr_nbr_inv(lid) = i
+          jm_nodes_offset(i) = n
+          n = n + nodes_arr(lid)
+        end do
+        !
+        ihc_min  = huge(ihc_min);   ihc_max = -huge(ihc_max)
+        cl1_min  = huge(cl1_min);   cl1_max = -huge(cl1_max)
+        cl2_min  = huge(cl2_min);   cl2_max = -huge(cl2_max)
+        hwva_min = huge(hwva_min); hwva_max = -huge(hwva_max)
+        !
+        ! create the node offsets
+        allocate(xch_im)
+        call xch_im%init()
+        !
+        do iact = 1, 2
+          xch_im%nexg = 0
+          do i = 1, nlid
+            lid = lid_arr(i)
+            q_m1 => xq%get_quad(lid); intf_m1 => q_m1%intf
+            do inbr = 1, intf_m1%n_nbr ! loop over interfaces
+              nintf_m1 => intf_m1%nbr_intf(inbr)
+              lid_nbr = nintf_m1%nbr_lid
+              km = lid2im_arr(lid_nbr)
+              if (km == jm) then ! take the non-interior interface
+                if (nintf_m1%xch_active == 1) then
+                  xch_m1 => nintf_m1%xch
+                  ihc_min = min(ihc_min,xch_m1%ihc); ihc_max = max(ihc_max,xch_m1%ihc)
+                  cl1_min = min(cl1_min,xch_m1%cl1); cl1_max = max(cl1_max,xch_m1%cl1)
+                  cl2_min = min(cl2_min,xch_m1%cl2); cl2_max = max(cl2_max,xch_m1%cl2)
+                  hwva_min = min(hwva_min,xch_m1%hwva); hwva_max = max(hwva_max,xch_m1%hwva)
+                  if (iact == 1) then
+                    xch_im%nexg = xch_im%nexg + xch_m1%nexg
+                  else
+                    imm = lid_arr_inv(lid); jmm = lid_arr_nbr_inv(lid_nbr)
+                    if ((imm == 0).or.(jmm == 0)) then
+                      call errmsg('quad_mf6_xch_write_merge: program error.')
+                    end if
+                    do iexg = 1, xch_m1%nexg
+                      n1 = xch_m1%cellidm1(iexg)
+                      n2 = xch_m1%cellidm2(iexg)
+                      !
+                      xch_im%nexg = xch_im%nexg + 1
+                      xch_im%cellidm1(xch_im%nexg) = n1 + im_nodes_offset(imm)
+                      xch_im%cellidm2(xch_im%nexg) = n2 + jm_nodes_offset(jmm)
+                    end do
+                  end if
+                else
+                  ! find the quad containing the exchange data
+                  lfound = .false.; lskip = .false.
+                  q_m2 => xq%get_quad(lid_nbr); intf_m2 => q_m2%intf
+                  do jnbr = 1, intf_m2%n_nbr
+                    nintf_m2 => intf_m2%nbr_intf(jnbr)
+                    if (nintf_m2%nbr_lid == lid) then
+                      if (nintf_m2%xch_active == 0) then
+                        lskip = .true.
+                        if (iact == 2) then
+                          call logmsg('Warning: no connection found for lid '// &
+                            trim(ta([lid]))//' -> '//trim(ta([lid_nbr]))//'!')
+                        end if
+                      end if
+                      xch_m2 => nintf_m2%xch
+                      lfound = .true.
+                      exit
+                    end if
+                  end do
+                  !
+                  if (.not.lfound) then
+                    call errmsg('quad_mf6_xch_write_merge: program error 2.')
+                  end if
+                  if (.not.lskip) then
+                    ihc_min = min(ihc_min,xch_m2%ihc); ihc_max = max(ihc_max,xch_m2%ihc)
+                    cl1_min = min(cl1_min,xch_m2%cl1); cl1_max = max(cl1_max,xch_m2%cl1)
+                    cl2_min = min(cl2_min,xch_m2%cl2); cl2_max = max(cl2_max,xch_m2%cl2)
+                    hwva_min = min(hwva_min,xch_m2%hwva); hwva_max = max(hwva_max,xch_m2%hwva)
+                    if (iact == 1) then
+                      xch_im%nexg = xch_im%nexg + xch_m2%nexg
+                    else
+                      imm = lid_arr_inv(lid); jmm = lid_arr_nbr_inv(lid_nbr)
+                      if ((imm == 0).or.(jmm == 0)) then
+                        call errmsg('quad_mf6_xch_write_merge: program error.')
+                      end if
+                      do iexg = 1, xch_m2%nexg
+                        n2 = xch_m2%cellidm1(iexg)
+                        n1 = xch_m2%cellidm2(iexg)
+                        !
+                        xch_im%nexg = xch_im%nexg + 1
+                        xch_im%cellidm1(xch_im%nexg) = n1 + im_nodes_offset(imm)
+                        xch_im%cellidm2(xch_im%nexg) = n2 + jm_nodes_offset(jmm)
+                      end do
+                    end if
+                  end if !lskip
+                end if
+              end if
+            end do !inbr
+          end do
+          if (iact == 1) then
+            if (xch_im%nexg == 0) then
+              call errmsg('quad_mf6_xch_write_merge: program error 3.')
+            end if
+            if ((ihc_min /= ihc_max).or.(cl1_min /= cl1_max).or.&
+                (cl2_min /= cl2_max).or.(hwva_min /= hwva_max)) then
+              call errmsg('quad_mf6_xch_write_merge: program error 4.')
+            else
+              xch_im%ihc  = ihc_min
+              xch_im%cl1  = cl1_min
+              xch_im%cl2  = cl2_min
+              xch_im%hwva = hwva_min
+            end if
+            allocate(xch_im%cellidm1(xch_im%nexg)); xch_im%cellidm1 = 0
+            allocate(xch_im%cellidm2(xch_im%nexg)); xch_im%cellidm2 = 0
+          end if
+        end do !iact
+        !
+        ! write the exchange
+        id = trim(ta([im]))//'-'//trim(ta([jm]))
+        f = trim(xch_root_dir)//slash//'exchangedata_'//trim(id)//'.asc'
+        call xch_im%write(f, id, wbd)
+        !
+        ! clean up
+        call xch_im%clean(); deallocate(xch_im)
+        if (allocated(jm_nodes_offset)) deallocate(jm_nodes_offset)
+        if (allocated(lid_arr_nbr_inv)) deallocate(lid_arr_nbr_inv)
+      end if
+    end do ! jm-loop
+    !
+    ! clean up
+    if (allocated(im_nodes_offset)) deallocate(im_nodes_offset)
+    if (allocated(lid_arr_inv)) deallocate(lid_arr_inv)
+  end do ! im-loop
+  !
+  ! write the csv-file
+  call wbd%write_csv()
+  !
+  ! clean up
+  call wbd%clean(); deallocate(wbd); wbd => null()
+  call csv%clean(); deallocate(csv); csv => null()
+  if (allocated(nodes_arr))  deallocate(nodes_arr)
+  if (allocated(im_arr))     deallocate(im_arr)
+  if (allocated(lid2im_arr)) deallocate(lid2im_arr)
+  if (allocated(nbr_im))     deallocate(nbr_im)
+  !
+  return
+end subroutine quad_mf6_xch_write_merge
+
+subroutine quad_mf6_data_write_old()
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -2868,12 +3143,6 @@ subroutine quad_mf6_data_write()
     !
     ! DEBUG:
     !if (q%gid /= 637452) cycle
-    !if (q%gid /= 500005) cycle
-    !if (q%gid /= 636924) cycle
-    !if (q%gid /= 990378) cycle
-    !if (q%gid /= 603528) cycle
-    !if (q%gid /= 603486) cycle
-    !if (q%gid /= 600157) cycle
     !
     if (q%get_flag(active=LDUM)) then
       call logmsg('***** Processing quad '//ta([q%gid])//' *****')
@@ -2887,38 +3156,324 @@ subroutine quad_mf6_data_write()
     end if
     !
   end do
-!
-    !if (.false.) then
-    !  allocate(wbd)
-    !  !
-    !  ! array
-    !  call wbd%init(trim(this%mod_dir)//'\dat.csv', trim(this%mod_dir)//'\dat.binpos')
-    !  call wbd%write_array(id='v1', nod_ptr=[0_I1B,1_I1B,1_I1B], i4a=[3, 4, 5])
-    !  call wbd%write_array(id='v2', i4a=[3, 4, 5])
-    !  call wbd%write_array(id='v3', r8a=[3.d0, 4.d0, 5.d0])
-    !  call wbd%write_array(id='v4', nod_ptr=[0_I1B,1_I1B,1_I1B], i4a=[3, 4, 5], f_bin=trim(this%mod_dir)//'\dat.bin')
-    !  call wbd%write_array(id='v5', nod_ptr=[0_I1B,1_I1B,1_I1B], r8a=[3.d0, 4.d0, 5.d0])
-    !  call wbd%write_array(id='v6', nod_ptr=[0_I1B,1_I1B,1_I1B], r8a=[3.d0, 4.d0, 5.d0], f_asc=trim(this%mod_dir)//'\dat.asc')
-    !  !
-    !  ! lists:
-    !  call wbd%write_list(id='riv', period_beg=1, period_end=10, nod_ptr=[0_I1B,1_I1B,1_I1B], i4a1=[1, 2, 3], &
-    !    r8a1=[1.d0, 1.d0, 1.d0],r8a2=[2.d0, 2.d0, 2.d0],r8a3=[3.d0, 3.d0, 3.d0], f_asc=trim(this%mod_dir)//'\riv.asc')
-    !  call wbd%write_list(id='riv', period_beg=1, period_end=10, nod_ptr=[0_I1B,1_I1B,1_I1B], i4a1=[1, 2, 3], &
-    !    r8a1=[1.d0, 1.d0, 1.d0],r8a2=[2.d0, 2.d0, 2.d0],r8a3=[3.d0, 3.d0, 3.d0], f_bin=trim(this%mod_dir)//'\riv.bin')
-    !  call wbd%write_list(id='exg', &
-    !    i4a1=[1, 2, 3], i4a2=[4, 5, 6], i4a3=[7, 8, 9], &
-    !    r8a1=[1.d0, 2.d0, 3.d0],r8a2=[4.d0, 5.d0, 6.d0],r8a3=[7.d0, 8.d0, 9.d0], f_bin=trim(this%mod_dir)//'\exg.bin')
-    !  call wbd%write_list(id='exg', &
-    !    i4a1=[1, 2, 3], i4a2=[4, 5, 6], i4a3=[7, 8, 9], &
-    !    r8a1=[1.d0, 2.d0, 3.d0],r8a2=[4.d0, 5.d0, 6.d0],r8a3=[7.d0, 8.d0, 9.d0])
-    !  
-    !  call wbd%write_csv()
-    !  stop
-    !end if
+  !
+  return
+end subroutine quad_mf6_data_write_old
   
+subroutine quad_mf6_data_write()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+  ! -- local
+  type(tDataModelData), pointer :: dmdat => null()
+  !
+  character(len=MXSLEN) :: d, f_log
+  logical :: writelog
+  integer(I4B) :: lid0, lid1, n_act, iu, idat
+  !
+  integer(I4B), dimension(:), allocatable :: i4a
+  real(R8B), dimension(:), allocatable :: r8a
+  real(R8B), dimension(:,:), allocatable :: r8x
+! ------------------------------------------------------------------------------
+  ! set the ranges
+  if (lid_min > 0) then
+     lid0 = max(1,lid_min)
+  else
+    lid0 = 1
+  end if
+  if (lid_max > 0) then
+     lid1 = min(xq%n,lid_max)
+  else
+    lid1 = xq%n
+  end if
+  if (lid0 > lid1) then
+    call errmsg('quad_mf6_data_write: lid_min > lid_max.')
+  end if
+  !
+  ! determine total number of active quads
+  n_act = 0
+  do lid = lid0, lid1
+    q => xq%get_quad(lid)
+    if (q%get_flag(active=LDUM)) n_act = n_act + 1
+  end do
+  !
+  if (len_trim(d_log) > 0) then
+    writelog = .true.
+    d = trim(d_log)
+    call create_dir(d, .true.)
+  else
+    writelog = .false.
+  end if
+  !
+  n = 0
+  do lid = lid0, lid1
+    q => xq%get_quad(lid)
+    !
+    ! DEBUG:
+    !if (q%gid /= 637452) cycle
+    !
+    if (q%get_flag(active=LDUM)) then
+      call logmsg('***** Processing quad '//ta([q%gid])//' *****')
+      !
+      call q%grid_init()
+      do idat = 1, q%dat_mod%get_ndat()
+        call q%dat_mod%get_dat(idat, dmdat)
+        call q%mf6_get_data(dmdat, i4a, r8a, r8x)
+        call mf6_data_write(q%disu%wbd, dmdat%id, dmdat%i_out_file_type, i4a, r8a, r8x)
+      end do
+      call q%disu%wbd%write_csv()
+      !
+      ! clean up disu
+      call q%disu%clean(); deallocate(q%disu); q%disu => null()
+      !
+      n = n + 1
+      call logmsg('***** '//ta([100.*real(n,R4B)/n_act],'(f6.2)')//' % *****')
+      if (writelog) then
+        f_log = trim(d)//'done_lid_'//ta([lid],'(i10.10)')//'.txt'
+        call open_file(f_log, iu, 'w'); close(iu)
+      end if
+    end if
+    !
+  end do
+  !
   return
 end subroutine quad_mf6_data_write
 
+subroutine quad_mf6_data_write_merge()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+  ! -- local
+  type(tCsv), pointer :: csv => null()
+  type(tMF6Disu), pointer :: disu => null()
+  type(tDataModelData), pointer :: dmdat => null()
+  type(tMf6Wbd), pointer :: wbd => null()
+  !
+  logical :: li4a, lr8a, lr8x, lfirst, lwritelog
+  !
+  character(len=MXSLEN) :: s, d, f_csv_dat, f_binpos, f_log, id_pref, id
+  !
+  integer(I4B), dimension(:), allocatable :: im_arr, lid_arr, qi4a, i4a
+  integer(I4B), dimension(:), allocatable ::  nodesa, nodesa_offset
+  integer(I4B) :: im, im0, im1, nim, nlid, idat, i, j, k, ilm, nodes_sum
+  integer(I4B) :: nodes, nodes_im, n, m, ndat_q, ndat, ic, ir, nc
+  integer(I4B) :: i_out_file_type, iu
+  !
+  real(R8B), dimension(:), allocatable :: qr8a, r8a
+  real(R8B), dimension(:,:), allocatable :: qr8x, r8x
+! ------------------------------------------------------------------------------
+  !
+  if (len_trim(d_log) > 0) then
+    lwritelog = .true.
+    d = trim(d_log)
+    call create_dir(d, .true.)
+  else
+    lwritelog = .false.
+  end if
+  !
+  allocate(csv)
+  call csv%read(f_in_csv_merge)
+  call csv%get_column(key='lid', i4a=im_arr)
+  nim = size(im_arr)
+  !
+  ! set the ranges
+  if (lid_min > 0) then
+    im0 = max(1,lid_min)
+  else
+    im0 = 1
+  end if
+  if (lid_max > 0) then
+    im1 = min(nim,lid_max)
+  else
+    im1 = nim
+  end if
+  if (im0 > im1) then
+    call errmsg('quad_mf6_data_write_merge: im_min > im_max.')
+  end if
+  !
+  do im = im0, im1
+    ! get the local lids
+    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
+    call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+    !
+    ! read the nodes array
+    if (allocated(nodesa)) deallocate(nodesa)
+    allocate(nodesa(nlid))
+    do j = 1, nlid
+      lid = lid_arr(j)
+      q => xq%get_quad(lid)
+      call q%get_prop_csv(key='nodes', i4v=nodesa(j))
+    end do
+    !
+    ! check
+    call csv%get_val(ir=im, ic=csv%get_col('nodes'), i4v=nodes_im)
+    if (nodes_im /= sum(nodesa)) then
+      call errmsg('quad_mf6_data_write_merge: invalid nodes.')
+    end if
+    !
+    ! determine the node offsets
+    if (allocated(nodesa_offset)) deallocate(nodesa_offset)
+    allocate(nodesa_offset(nlid))
+    nodes = 0
+    do i = 1, nlid
+      nodesa_offset(i) = nodes
+      nodes = nodes + nodesa(i)
+    end do
+    !
+    ! read the disu
+    call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f_csv_dat)
+    do j = 1, nlid
+      lid = lid_arr(j)
+      q => xq%get_quad(lid)
+      if (.not.q%get_flag(active=LDUM)) then
+        call errmsg('quad_mf6_data_write_merge: inactive quad.')
+      end if
+      id_pref = '_'//ta([lid_arr(j)])
+      call q%grid_init(f_csv_dat, id_pref)
+    end do
+    !
+    ! set the wbd
+    f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+    allocate(wbd)
+    call wbd%read_csv(f_csv_dat, nr_max=MAX_NR_CSV)
+    wbd%f_binpos = f_binpos
+    !
+    ! loop over the unique mapping ids
+    do i = 1, xq%dat_mods%n_uni_map
+    !do i = 46, 46
+      ndat = 0
+      id = xq%dat_mods%uni_map_id(i)
+      lfirst = .true.
+      !
+      ! set the array
+      if (allocated(i4a)) deallocate(i4a)
+      if (allocated(r8a)) deallocate(r8a)
+      if (allocated(r8x)) deallocate(r8x)
+      !
+      ! get the data and merge
+      do j = 1, nlid
+        lid = lid_arr(j)
+        q => xq%get_quad(lid)
+        call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm)
+        idat = xq%dat_mods%uni_map_ir(ilm, i)
+        if (idat > 0) then
+          call q%dat_mod%get_dat(idat, dmdat)
+          if (id /= dmdat%id) then
+            call errmsg('quad_mf6_data_write_merge: program error.')
+          end if
+          !
+          ! ----- read the data -----
+          !do k = 1, 100
+          !  call q%dat_mod%get_dat(idat, dmdat)
+          ! ----- read the data -----
+          call q%mf6_get_data(dmdat, qi4a, qr8a, qr8x)
+          !end do
+          ! ----- read the data -----
+          !
+          if (lfirst) then
+            i_out_file_type = dmdat%i_out_file_type
+            lfirst = .false.
+          end if
+          !
+          ! set the data
+          li4a = .false.; lr8a = .false.; lr8x = .false.
+          ndat_q = 0
+          if (allocated(qi4a)) then
+            li4a = .true.
+            ndat_q = size(qi4a)
+          end if
+          if (allocated(qr8a)) then
+            lr8a = .true.
+            if (ndat_q > 0) then
+              if (size(qr8a) /= ndat_q) then
+                call errmsg('quad_mf6_data_write_merge: invalid data size.')
+              end if
+            else
+              ndat_q = size(qr8a)
+            end if
+          end if
+          if (allocated(qr8x)) then
+            lr8x = .true.
+            if (ndat_q > 0) then
+              if (size(qr8x,2) /= ndat_q) then
+                call errmsg('quad_mf6_data_write_merge: invalid data size.')
+              end if
+            else
+              ndat_q = size(qr8a)
+            end if
+          end if
+          !
+          if ((.not.li4a).and.(.not.lr8a).and.(.not.lr8x)) then
+            call logmsg('WARNING: nothing to do for '//trim(id)//'!')
+            cycle
+          end if
+          !
+          if (li4a) then
+            if (.not.allocated(i4a)) then
+              allocate(i4a(nodes_im))
+            end if
+            do ir = 1, ndat_q
+              n = qi4a(ir) + nodesa_offset(j)
+              i4a(ir+ndat) = n
+            end do
+          end if
+          if (lr8a) then
+            if (.not.allocated(r8a)) then
+              allocate(r8a(nodes_im))
+            end if
+            do ir = 1, ndat_q
+              r8a(ir+ndat) = qr8a(ir)
+            end do
+          end if
+          if (lr8x) then
+            nc = size(qr8x,1)
+            if (.not.allocated(r8x)) then
+              allocate(r8x(nc,nodes_im))
+            end if
+            do ir = 1, ndat_q
+              do ic = 1, nc
+                r8x(ic,ir+ndat) = qr8x(ic,ir)
+              end do
+            end do
+          end if
+          ndat = ndat + ndat_q
+        end if
+      end do
+      !
+      ! write the data
+      if (ndat > 0) then
+        call logmsg('Writing MODFLOW 6 data for: '//trim(id)//'...')
+        call mf6_data_write(wbd, id, i_out_file_type, i4a, r8a, r8x, ndat)
+        call wbd%write_csv()
+      end if
+      !
+    end do
+    !
+    ! clean up
+    if (allocated(qi4a)) deallocate(qi4a)
+    if (allocated(qr8a)) deallocate(qr8a)
+    if (allocated(qr8x)) deallocate(qr8x)
+    if (allocated(i4a)) deallocate(i4a)
+    if (allocated(r8a)) deallocate(r8a)
+    if (allocated(r8x)) deallocate(r8x)
+    call wbd%clean(); deallocate(wbd)
+    do j = 1, nlid
+      lid = lid_arr(j)
+      q => xq%get_quad(lid)
+      call q%disu%clean()
+    end do
+    !
+    if (lwritelog) then
+      f_log = trim(d)//'done_im_'//ta([im],'(i10.10)')//'.txt'
+      call open_file(f_log, iu, 'w'); close(iu)
+    end if
+  end do
+  !
+  call csv%clean(); deallocate(csv); csv => null()
+  !
+  return
+end subroutine quad_mf6_data_write_merge
+  
 subroutine quad_set_mod_dir()
 ! ******************************************************************************
 !
@@ -2936,12 +3491,13 @@ subroutine quad_grid_gen()
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
   ! -- local
+  type(tMF6Disu), pointer :: disu => null()
   type(tCsv), pointer :: csv => null(), csv_old => null()
   !
   integer(I4B), parameter :: perc_intv = 10
   !
   character(len=1) :: slash
-  character(len=MXSLEN) :: f_csv_dat, s_lay_act
+  character(len=MXSLEN) :: f_csv_dat, f_binpos, s_lay_act
   logical :: lactive, lskip, lwrite
   integer(I4B), dimension(:), allocatable :: lay, lid_map, lid_arr
   integer(I4B) :: ncell_tot, ncell, nja, nlay_act, ngrid, write_csv_delta
@@ -2996,6 +3552,7 @@ subroutine quad_grid_gen()
   ! determine total number of active quads
   n_act = 0
   do lid = lid0, lid1
+    q => xq%get_quad(lid)
     if (q%get_flag(active=LDUM)) n_act = n_act + 1
   end do
   !
@@ -3024,9 +3581,36 @@ subroutine quad_grid_gen()
         call logmsg('***** Processing quad '//ta([q%gid])//' *****')
         lwrite = .true.
         f_csv_dat = trim(q%mod_dir)//slash//'dat.csv'
-        call q%grid_gen(f_csv_dat, lwrite_disu, lwrite_asc, &
-          ncell, nja, nlay_act, lay, ngrid, lskip, cs_min_rea, cs_max_rea)
+        
+        ! create the grid and store the arrays
+        allocate(disu)
+        call disu%init()
+        if(.not.lwrite_asc) then
+          f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+          call disu%init_csv(f_csv_dat, f_binpos)
+        else
+          call disu%init_csv(f_csv_dat)
+        end if
+        !
+        ! call the main grid generation subroutine
+        call q%grid_gen(nlay_act, lay, lskip, disu)
+        !
+        if (lwrite_disu) then
+          if (lwrite_asc) then
+            call disu%write(write_opt=1, write_asc=.true., d_out=trim(q%mod_dir)//'\')
+            call disu%write(write_opt=2, write_asc=.true., d_out=trim(q%mod_dir)//'\')
+          else
+            call disu%write(write_opt=1)
+            call disu%write(write_opt=2)
+          end if
+        end if
         s_lay_act = ta(lay,sep_in=';')
+        !
+        ncell = disu%nodes
+        nja   = disu%nja 
+        ngrid = disu%ngrid
+        cs_min_rea = disu%cs_min_rea
+        cs_max_rea = disu%cs_max_rea
       else
         if (associated(csv_old)) then
           call logmsg('***** Using data from old csv for quad '//ta([q%gid])//' *****')
@@ -3070,6 +3654,7 @@ subroutine quad_grid_gen()
           end if
         end if
       end if
+      call disu%clean(); deallocate(disu)
     end if
     !
     !if (lwrite_props.and.((n == xq%n_act).or.(mod(n,write_csv_delta) == 0))) then
@@ -3086,6 +3671,183 @@ subroutine quad_grid_gen()
   !
   return
 end subroutine quad_grid_gen
+
+subroutine quad_grid_gen_merge()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- local
+  type(tCsv), pointer :: csv => null()
+  type(tMF6Disu), dimension(:), pointer :: disu_arr => null()
+  type(tMF6Disu), pointer :: disu => null(), disu_merge => null()
+  character(len=1) :: slash
+  character(len=MXSLEN) :: d, f_csv_dat, f_binpos, s_lay_act, id_pref
+  logical :: lactive, lskip
+  integer(I4B), dimension(:), allocatable :: lay, lid_arr, imerge, lid2imerge
+  integer(I4B) :: lid, nim, im, im0, im1, jm, km, nlid, nlay_act, n, nodes_tot
+! ------------------------------------------------------------------------------
+  if (lwrite_props) then
+    if (len_trim(f_out_csv) == 0) then
+      call errmsg('f_out_csv not set.')
+    end if
+    allocate(csv)
+    call csv%init(file=f_out_csv, &
+      hdr_keys=['lid', 'nlid_merged', 'lid_merged', 'nodes', 'nja', 'csv_dat'], &
+      nr_max=xq%n, hdr_i_type=[i_i4, i_i4, i_c, i_i4, i_i4, i_c])
+  end if
+  !
+  ! read the parts to be merged
+  call xq%props%csv%get_column(key=fields(i_merge),i4a=imerge)
+  if (size(imerge) /= xq%n_act) then
+    call errmsg('quad_grid_gen_merge: invalid size.')
+  end if
+  allocate(lid2imerge(xq%n)); lid2imerge = 0
+  call xq%props%csv%get_column(key=fields(i_lid),i4a=lid_arr)
+  do i = 1, size(lid_arr)
+    lid = lid_arr(i)
+    lid2imerge(lid) = i
+  end do
+  deallocate(lid_arr)
+  !
+  nim = maxval(imerge)
+  !
+  ! set the ranges
+  if (lid_min > 0) then
+    im0 = max(1,lid_min)
+  else
+    im0 = 1
+  end if
+  if (lid_max > 0) then
+    im1 = min(nim,lid_max)
+  else
+    im1 = nim
+  end if
+  if (im0 > im1) then
+    call errmsg('quad_grid_gen_merge: im_min > im_max.')
+  end if
+  !
+  slash = get_slash()
+  n = 0; nodes_tot = 0
+  do im = im0, im1
+!  do im = 1, 1
+    d = trim(mod_root_dir)//slash//ta([im]); call create_dir(d, .true.)
+    f_csv_dat = trim(d)//slash//'dat.csv'
+    if(.not.lwrite_asc) then
+      f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+    end if
+    !
+    ! count
+    nlid = 0
+    do lid = 1, xq%n
+      q => xq%get_quad(lid)
+      lactive = q%get_flag(active=LDUM)
+      if (lactive) then
+        jm = imerge(lid2imerge(lid))
+        if (jm == im) then
+          nlid = nlid + 1
+        end if
+      end if
+    end do
+    if (nlid == 0) then
+      call errmsg('quad_grid_gen_merge: nothing to merge')
+    end if
+    if (allocated(lid_arr)) deallocate(lid_arr)
+    allocate(lid_arr(nlid))
+    nlid = 0
+    do lid = 1, xq%n
+      q => xq%get_quad(lid)
+      lactive = q%get_flag(active=LDUM)
+      if (lactive) then
+        jm = imerge(lid2imerge(lid))
+        if (jm == im) then
+          nlid = nlid + 1
+          lid_arr(nlid) = lid
+        end if
+      end if
+    end do
+    !
+    ! allocate the disuu array
+    allocate(disu_arr(nlid))
+    !
+    ! fill disu
+    km = 0
+    do lid = 1, xq%n
+      q => xq%get_quad(lid)
+      lactive = q%get_flag(active=LDUM)
+      if (lactive) then
+        jm = imerge(lid2imerge(lid))
+        if (jm == im) then
+          km = km + 1
+          !
+          disu => disu_arr(km)
+          call disu%init()
+          !
+          ! generate the seperate grid
+          call q%grid_gen(nlay_act, lay, lskip, disu)
+        end if
+      end if
+    end do
+    !
+    ! initialize the merged disu
+    allocate(disu_merge)
+    call disu_merge%init()
+    if(.not.lwrite_asc) then
+      call disu_merge%init_csv(f_csv_dat, f_binpos)
+    else
+      call disu_merge%init_csv(f_csv_dat)
+    end if
+    !
+    ! merge the separate disu
+    call xq%merge_disu(lid_arr, disu_arr, disu_merge)
+    !
+    ! write the merged disu data
+    call disu_merge%write(write_opt=1)
+    !
+    ! write all seperate disu data; and clean
+    do km = 1, nlid
+      disu => disu_arr(km)
+      !
+      if(.not.lwrite_asc) then
+        call disu%init_csv(f_csv_dat, f_binpos, reuse=.true.)
+      else
+        call disu%init_csv(f_csv_dat, reuse=.true.)
+      end if
+      !
+      id_pref = '_'//ta([lid_arr(km)])
+      call disu%write(write_opt=1, id_pref=id_pref)
+      call disu%write(write_opt=2, id_pref=id_pref)
+      call disu%clean()
+    end do
+    !
+    n = n + 1; nodes_tot = nodes_tot + disu_merge%nodes
+    call logmsg('***** '//ta([100.*real(n,R4B)/(im1-im0+1)],'(f6.2)')//' %: '// &
+        trim(adjustl(ta([real(nodes_tot,R4B)/1000000.],'(f10.2)')))//' M nodes *****')
+    !
+    ! write to the csv
+    if (lwrite_props) then
+      call csv%increase_nr()
+      call csv%set_val_by_key(key='lid', i4v=im)
+      call csv%set_val_by_key(key='nlid_merged', i4v=nlid)
+      call csv%set_val_by_key(key='lid_merged', cv=ta(lid_arr, sep_in=';'))
+      call csv%set_val_by_key(key='nodes', i4v=disu_merge%nodes)
+      call csv%set_val_by_key(key='nja', i4v=disu_merge%nja)
+      call csv%set_val_by_key(key='csv_dat', cv=f_csv_dat)
+    end if
+    !
+    ! clean up
+    deallocate(disu_arr); disu_arr => null()
+    call disu_merge%clean(); deallocate(disu_merge); disu_merge => null()
+  end do
+  !
+  ! write the csv file and clean up
+  if (lwrite_props) then
+    call csv%write()
+    call csv%clean(); deallocate(csv)
+  end if
+  !
+  return
+end subroutine quad_grid_gen_merge
 
 subroutine quad_partition()
 ! ******************************************************************************
@@ -3351,13 +4113,14 @@ subroutine quad_partition()
   return
 end subroutine quad_partition
 
-subroutine quad_mf6_write_heads()
+subroutine quad_mf6_write_heads(lmerge)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
   ! -- local
   integer(I4B) :: lid0, lid1
+  logical, intent(in) :: lmerge
 ! ------------------------------------------------------------------------------
 
   ! set the ranges
@@ -3374,9 +4137,13 @@ subroutine quad_mf6_write_heads()
   if (lid0 > lid1) then
     call errmsg('quad_mf6_write_heads: lid_min > lid_max.')
   end if
-
-  call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
-    tile_nc, tile_nr, f_vrt, write_nod_map)
+  if (lmerge) then
+    call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
+      tile_nc, tile_nr, f_vrt, write_nod_map, f_in_csv_merge)
+  else
+    call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
+      tile_nc, tile_nr, f_vrt, write_nod_map)
+  end if
   !
   return
 end subroutine quad_mf6_write_heads
@@ -3491,20 +4258,44 @@ program quad2d
     call quad_grid_gen()
   end if
   !
+  ! grid_gen_merge
+  if (run_opt == 17) then
+    call quad_clean()
+    call quad_read('.intf.lm.bin', read_vintf=.true.)
+    call quad_init_models()
+    call quad_grid_gen_merge()
+  end if
+  !
   ! mf6_xch_write
   if (run_opt == 5) then
     call quad_clean()
     call quad_read(fp_intf='.intf.lm.bin', read_vintf=.false.)
     call quad_mf6_xch_write()
   end if
-  
+  !
+  ! mf6_xch_write_merge
+  if (run_opt == 19) then
+    call quad_clean()
+    call quad_read(fp_intf='.intf.lm.bin', read_vintf=.false.)
+    call quad_mf6_xch_write_merge()
+  end if
+  !
   ! mf6_data_write
   if (run_opt == 6) then
     call quad_clean()
     call quad_read()
     call quad_set_mod_dir()
     call quad_init_models(set_dat_mod=.true.)
+    !call quad_mf6_data_write_old()
     call quad_mf6_data_write()
+  end if
+  !
+  ! mf6_data_write_merge
+  if (run_opt == 18) then
+    call quad_clean()
+    call quad_read()
+    call quad_init_models(set_dat_mod=.true.)
+    call quad_mf6_data_write_merge()
   end if
   !
   ! partition
@@ -3523,7 +4314,11 @@ program quad2d
     if (write_chd) then
       call quad_mf6_write_chd()
     else
-      call quad_mf6_write_heads()
+      if (len_trim(f_in_csv) > 0) then
+        call quad_mf6_write_heads(lmerge=.true.)
+      else
+        call quad_mf6_write_heads(lmerge=.false.)
+      end if
     end if
   end if
   !
