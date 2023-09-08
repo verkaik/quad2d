@@ -2863,7 +2863,7 @@ subroutine quad_mf6_xch_write_merge()
   type(tMf6Wbd), pointer :: wbd => null()
   type(tMF6Exchange), pointer :: xch_m1 => null(), xch_m2 => null(), xch_im => null()
   !
-  logical :: lfound, lskip
+  logical :: lfound, lskip, lwrite
   !
   character(len=1) :: slash
   character(len=MXSLEN) :: d, s, id, f
@@ -3050,31 +3050,42 @@ subroutine quad_mf6_xch_write_merge()
               end if
             end do !inbr
           end do
+          lwrite = .true.
           if (iact == 1) then
-            if (xch_im%nexg == 0) then
-              call errmsg('quad_mf6_xch_write_merge: program error 3.')
-            end if
-            if ((ihc_min /= ihc_max).or.(cl1_min /= cl1_max).or.&
-                (cl2_min /= cl2_max).or.(hwva_min /= hwva_max)) then
-              call errmsg('quad_mf6_xch_write_merge: program error 4.')
+            if (xch_im%nexg > 0) then
+              if ((ihc_min /= ihc_max).or.(cl1_min /= cl1_max).or.&
+                  (cl2_min /= cl2_max).or.(hwva_min /= hwva_max)) then
+                call errmsg('quad_mf6_xch_write_merge: program error 4.')
+              else
+                xch_im%ihc  = ihc_min
+                xch_im%cl1  = cl1_min
+                xch_im%cl2  = cl2_min
+                xch_im%hwva = hwva_min
+              end if
+              allocate(xch_im%cellidm1(xch_im%nexg)); xch_im%cellidm1 = 0
+              allocate(xch_im%cellidm2(xch_im%nexg)); xch_im%cellidm2 = 0
             else
-              xch_im%ihc  = ihc_min
-              xch_im%cl1  = cl1_min
-              xch_im%cl2  = cl2_min
-              xch_im%hwva = hwva_min
+              lwrite = .false.
             end if
-            allocate(xch_im%cellidm1(xch_im%nexg)); xch_im%cellidm1 = 0
-            allocate(xch_im%cellidm2(xch_im%nexg)); xch_im%cellidm2 = 0
+          end if
+          if (.not.lwrite) then
+            call logmsg('WARNING: no exchanges found for part '// &
+              trim(ta([im]))//' -> '//trim(ta([jm]))//'!')
+            exit
           end if
         end do !iact
         !
         ! write the exchange
-        id = trim(ta([im]))//'-'//trim(ta([jm]))
-        f = trim(xch_root_dir)//slash//'exchangedata_'//trim(id)//'.asc'
-        call xch_im%write(f, id, wbd)
+        if (lwrite) then
+          id = trim(ta([im]))//'-'//trim(ta([jm]))
+          f = trim(xch_root_dir)//slash//'exchangedata_'//trim(id)//'.asc'
+          call xch_im%write(f, id, wbd)
+        end if
         !
         ! clean up
-        call xch_im%clean(); deallocate(xch_im)
+        if (associated(xch_im)) then
+          call xch_im%clean(); deallocate(xch_im); xch_im => null()
+        end if
         if (allocated(jm_nodes_offset)) deallocate(jm_nodes_offset)
         if (allocated(lid_arr_nbr_inv)) deallocate(lid_arr_nbr_inv)
       end if
