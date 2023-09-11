@@ -2486,11 +2486,11 @@ module utilsmod
   end subroutine tVal_get_val_arr
   
   function tVal_get_val_s(this, i_type, &
-    i1mv, i2mv, i4mv, i8mv, r4mv, r8mv, cmv) result(s)
+    i1mv, i2mv, i4mv, i8mv, r4mv, r8mv, cmv) result(s_long)
 ! ******************************************************************************  
     ! -- arguments
     class(tVal) :: this
-    character(len=MXSLEN) :: s
+    character(len=MXSLENLONG) :: s_long
     !
     integer(I4B),     intent(in) :: i_type
     integer(I1B),     intent(in), optional :: i1mv
@@ -2503,6 +2503,7 @@ module utilsmod
     ! -- locals
     type(tNum), pointer :: num => null()
     !
+    character(len=MXSLEN) :: s_short
     logical :: apply_mv
     integer(I4B) :: n_mv
     integer(I1B)          :: i1v
@@ -2552,14 +2553,14 @@ module utilsmod
       apply_mv = .false.
     end if
     !
-    s = ''
+    s_long = ''
     ! 
     if (i_type == i_c) then
       if (.not.apply_mv) then
         if(.not.allocated(this%s)) then
           call errmsg('tVal_get_val_s: could not retrieve value.')
         else
-          s = this%s
+          s_long = this%s
         end if
       end if
       return
@@ -2574,45 +2575,46 @@ module utilsmod
     select case(i_type)
     case(i_i1)
       if (apply_mv) then
-        if (num%i1v /= i1v) write(s,*) num%i1v
+        if (num%i1v /= i1v) write(s_long,*) num%i1v
       else
-        write(s,*) num%i1v
+        write(s_long,*) num%i1v
       end if
     case(i_i2)
       if (apply_mv) then
-        if (num%i2v /= i2v) write(s,*) num%i2v
+        if (num%i2v /= i2v) write(s_long,*) num%i2v
       else
-        write(s,*) num%i2v
+        write(s_long,*) num%i2v
       end if
     case(i_i4)
       if (apply_mv) then
-        if (num%i4v /= i4v) write(s,*) num%i4v
+        if (num%i4v /= i4v) write(s_long,*) num%i4v
       else
-        write(s,*) num%i4v
+        write(s_long,*) num%i4v
       end if
     case(i_i8)
       if (apply_mv) then
-        if (num%i8v /= i8v) write(s,*) num%i8v
+        if (num%i8v /= i8v) write(s_long,*) num%i8v
       else
-        write(s,*) num%i8v
+        write(s_long,*) num%i8v
       end if
     case(i_r4)
       if (apply_mv) then
-        if (num%r4v /= r4v) write(s,*) num%r4v
+        if (num%r4v /= r4v) write(s_long,*) num%r4v
       else
-        write(s,*) num%r4v
+        write(s_long,*) num%r4v
       end if
     case(i_r8)
       if (apply_mv) then
-        if (num%r8v /= r8v) write(s,*) num%r8v
+        if (num%r8v /= r8v) write(s_long,*) num%r8v
       else
-        write(s,*) num%r8v
+        write(s_long,*) num%r8v
       end if
     end select
     !
     if (this%lnum) then
-      s = adjustl(s); s = change_case(s,'l')
-      s = remove_trailing_zeros(s)
+      s_short = adjustl(s_long); s_short = change_case(s_short,'l')
+      s_short = remove_trailing_zeros(s_short)
+      s_long = trim(s_short)
     end if
     !
     return
@@ -3231,7 +3233,7 @@ module utilsmod
     type(tCSV_hdr), pointer :: hdr => null()
     type(tVal), pointer :: v => null()
     character(len=MXSLENLONG) :: s
-    character(len=MXSLEN), dimension(:), allocatable :: sa
+    character(len=MXSLENLONG), dimension(:), allocatable :: sa
     integer(I4B) :: iu, ir, ic, i_type, n_mv, ir0_loc, ir1_loc
 ! ------------------------------------------------------------------------------
     !
@@ -5955,7 +5957,7 @@ module utilsmod
     ! -- locals
     integer(I4B) :: i
     character(len=1) :: q, sep
-    character(len=MXSLEN) :: w
+    character(len=MXSLENLONG) :: w
 ! ------------------------------------------------------------------------------
     if (present(add_quotes)) then
       q = '"'
