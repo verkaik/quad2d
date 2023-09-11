@@ -45,7 +45,7 @@ module main_module
   type(tBbX) :: bbx
   type(tBbX) :: bbx_t
   !
-  character(len=MXSLEN), dimension(:), allocatable :: args
+  character(len=MXSLEN), dimension(:), allocatable :: args, csv_val
   character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_in_csv_merge, f_out_csv, f_part_csv
   character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post
   character(len=MXSLEN) :: f_mod_def_inp, f_lay_mod_csv, fp
@@ -56,7 +56,7 @@ module main_module
   character(len=MXSLEN) :: chd_lid
   character(len=MXSLEN) :: f_hiera_in, f_hiera_field, f_weight
   character(len=MXSLEN) :: gid_exclude, gid_separate, gid_first_num
-  character(len=MXSLEN) :: csv_field, csv_val
+  character(len=MXSLEN) :: csv_field
   character(len=MXSLEN) :: f_in_idf
   character(len=MXSLEN) :: d_log
   !
@@ -75,7 +75,7 @@ module main_module
   integer(I4B) :: icb0, icb1, irb0, irb1, jc, jr, kc, kr, jc0, jc1, jr0, jr1, ntile, it, it0, it1, iu, ilev
   integer(I4B) :: mvxid, gid_mv, area_min, area_max, n_inact, area, i, idum, ireg, jreg, nreg
   integer(I4B) :: run_opt, nzlev_max, gid_mask
-  integer(I4B) :: npart, max_iter, max_np
+  integer(I4B) :: npart, max_iter, max_np, n_csv_val
   integer(I4B), dimension(:), allocatable :: gids, l2gid, g2lid
   integer(I4B), dimension(:,:), allocatable :: xid, i4w2d, regun
   !
@@ -118,7 +118,7 @@ subroutine quad_settings()
     read(args(4),*) lid_max
   end if
   !
-  call logmsg('==================================')
+  call logmsg('====================================================================')
   call get_compiler(cdate, cversion)
   call logmsg('Program QUAD2D compiled '//trim(cdate)//' using '//trim(cversion))
   !
@@ -130,6 +130,7 @@ subroutine quad_settings()
   ! variable used for ALL options
   call ini%get_val('_general', 'gid_max', i4v=gid_max, i4v_def=5000000)
   !
+  run_opt = -1
   select case(sect)
   case('filter')
     !=========!
@@ -380,14 +381,6 @@ subroutine quad_settings()
     call ini%get_val(sect, 'gid_first_num', cv =gid_first_num,  cv_def='')
     call ini%get_val(sect, 'max_iter',      i4v =max_iter,     i4v_def=100)
     call ini%get_val(sect, 'max_np',        i4v =max_np,       i4v_def=10000)
-  case('csv_add_field')
-    !=========!
-    run_opt = 14
-    !=========!
-    call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
-    call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
-    call ini%get_val(sect, 'csv_field', cv=csv_field)
-    call ini%get_val(sect, 'csv_val', cv=csv_val)
   case('idf_to_flt')
     !=========!
     run_opt = 15
@@ -401,12 +394,32 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_in_csv_pref', cv=f_in_csv_pref)
     call ini%get_val(sect, 'f_in_csv_post', cv=f_in_csv_post)
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
-  case default
-    call errmsg('Invalid run option: '//trim(sect))
   end select
   !
+  if (sect(1:13) == 'csv_add_field') then
+    !=========!
+    run_opt = 14
+    !=========!
+    call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
+    call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
+    call ini%get_val(sect, 'csv_field', cv=csv_field)
+    call ini%get_val(sect, 'n_csv_val', i4v =n_csv_val, i4v_def=1)
+    allocate(csv_val(n_csv_val)); csv_val = ''
+    if (n_csv_val > 1) then
+      do i = 1, n_csv_val
+        call ini%get_val(sect, 'csv_val_'//trim(ta([i])), cv=csv_val(i))
+      end do
+    else
+      call ini%get_val(sect, 'csv_val', cv=csv_val(1))
+    end if
+  end if
+  !
+  if (run_opt == -1) then
+    call errmsg('Invalid run option: '//trim(sect))
+  end if
+  !
   call logmsg('***** Run option: '//trim(sect)//' *****')
-  call logmsg('==================================')
+  call logmsg('====================================================================')
   !
   ! clean up
   call ini%clean()
@@ -2135,36 +2148,61 @@ subroutine quad_csv_add_field()
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------  
 ! -- local
-  type(tCSV), pointer    :: csv => null()
+  type(tCSV), pointer :: csv => null()
 ! -- local
   character(len=MXSLEN), dimension(:), allocatable :: hdr, hdr_add, val_add
-  integer(I4B) :: nc, nc_add, nc_max, ir, ic, jc
+  integer(I4B) :: nc, nc_add, nc_max, ir, ic, jc, jc0
 ! ------------------------------------------------------------------------------
   allocate(csv)
   call csv%read_hdr(f_in_csv, hdr)
   nc = size(hdr)
   !
   call parse_line(csv_field, hdr_add, token_in=',')
-  call parse_line(csv_val,   val_add, token_in=',')
   nc_add = size(hdr_add)
-  if (nc_add /= size(val_add)) then
-    call errmsg('Size csv_field differs from csv_val.')
-  end if
   nc_max = nc + nc_add
   !
   call csv%read(f_in_csv, nc_max=nc_max)
   !
   ! add the new data
   call csv%add_hdr(hdr_add)
-  do ir = 1, csv%nr
-    do jc = 1, nc_add
-      ic = nc + jc
-      call csv%set_val(ic=ic, ir=ir, cv=val_add(jc))
+  !
+  if (n_csv_val > 1) then
+    jc0 = 2
+  else
+    jc0 = 0
+  end if
+  !
+  do i = 1, n_csv_val
+    call parse_line(csv_val(i), val_add, token_in=',')
+    if (nc_add /= (size(val_add)-jc0)) then
+      call errmsg('quad_csv_add_field: size csv_field differs from csv_val.')
+    end if
+    if (n_csv_val > 1) then
+      read(val_add(1),*) ir0
+      read(val_add(2),*) ir1
+      if ((ir0 < 1).or.(ir0 > csv%nr).or. &
+          (ir1 < 1).or.(ir1 > csv%nr).or.(ir0 > ir1)) then
+        call errmsg('quad_csv_add_field: invalid row, '//trim(csv_val(i)))
+      end if
+    else
+      ir0 = 1
+      ir1 = csv%nr
+    end if
+    !
+    do ir = ir0, ir1
+      do jc = 1, nc_add
+        ic = nc + jc
+        call csv%set_val(ic=ic, ir=ir, cv=val_add(jc+jc0))
+      end do
     end do
+    !
   end do
   !
   csv%file = trim(f_out_csv); call csv%write()
-  call csv%clean(); deallocate(csv)
+  call csv%clean(); deallocate(csv); csv => null()
+  if (allocated(hdr)) deallocate(hdr)
+  if (allocated(hdr_add)) deallocate(hdr_add)
+  if (allocated(val_add)) deallocate(val_add)
   !
   return
 end subroutine quad_csv_add_field
