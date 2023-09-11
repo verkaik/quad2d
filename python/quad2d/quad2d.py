@@ -42,6 +42,8 @@ log.info(f'Start of program: {start_time}')
 
 # command line parser
 clp = argparse.ArgumentParser()
+clp.add_argument('-runopt', '--runopt', type=str, default='ss', \
+                help='Run option: ss (steady-state) or tr (transient).')
 clp.add_argument('-mpi', '--mpi', type=str, \
                 default=r'c:\Program Files\Microsoft MPI\Bin\mpiexec.exe', \
                 help='Message Passing Interface program.')
@@ -74,10 +76,10 @@ clp.add_argument('-cgc_solver', '--cgc_solver', type=int, default=1,
                 help='Coarse grid correction solver (1: LU; 2: ILU(0)).')
 clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
 cla = clp.parse_args().__dict__
-log.info(10*'='+'BEGIN command line arguments'+10*'=')
+log.info(10*'='+' BEGIN command line arguments '+10*'=')
 for key in cla:
     log.info('%s: %s'%(key,str(cla[key])))
-log.info(10*'='+'END command line arguments'+10*'=')
+log.info(10*'='+' END command line arguments '+10*'=')
 
 i_const  = 0
 i_asc    = 1
@@ -420,7 +422,7 @@ def determine_periods(section, d_mod_ini, d_mod_csv):
     return d, ids_csv
 
 #############################################################################
-def write_exchanges(d_ini, d_xch, d_template, d_mf6_mod):
+def write_exchanges(d_ini, d_xch, d_template, d_mf6_mod, rep_dict):
 #############################################################################
     d_xch_files = {}
     if get_cla_key('serial_decoupled'):
@@ -440,6 +442,9 @@ def write_exchanges(d_ini, d_xch, d_template, d_mf6_mod):
             d_xch_files[xch_type] = []
             if section is not None:
                 fdir = get_key(d_ini, section, 'fdir')
+                for s_src in rep_dict.keys():
+                    s_tgt = rep_dict[s_src]
+                    fdir = fdir.replace(s_src, s_tgt)
                 d_sect = {}
                 for k, v in d_ini[section].items():
                     d_sect[k] = v
@@ -465,7 +470,7 @@ def write_exchanges(d_ini, d_xch, d_template, d_mf6_mod):
     return d_xch_files
 
 #############################################################################
-def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
+def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
 #############################################################################
 
     log.info('Writing simulation files...')
@@ -474,6 +479,7 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
     nrproc = 1
     cgc              = get_cla_key('cgc')
     serial_decoupled = get_cla_key('serial_decoupled')
+    runopt           = get_cla_key('runopt')
     if serial_decoupled:
         parallel = False
 
@@ -481,23 +487,31 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
     # SIM-TDIS #
     ############
     section = 'sim-tdis'
-    fname_tdis = get_key(d_ini, 'sim-tdis', 'fname')
+    fname_tdis = get_key(d_ini, section+'_'+runopt, 'fname')
+    for s_src in rep_dict.keys():
+        s_tgt = rep_dict[s_src]
+        fname_tdis = fname_tdis.replace(s_src, s_tgt)
     d = {}
-    for k, v in d_ini[section].items():
+    for k, v in d_ini[section+'_'+get_cla_key('runopt')].items():
         d[k] = v
     d.pop('fname')
     template = mf6_template(section)
     template.set(d, valid_keys=d_template[section])
     template.render(fname_tdis)
 
-    f_base = get_key(d_ini, 'sim-nam', 'fname')
+    f_base = get_key(d_ini, 'sim-nam'+'_'+runopt, 'fname')
 
     #########################
     # SIM-NAM: models ascii #
     #########################
     fname_mod = None
     if not serial_decoupled:
-        fname_mod = Path(f_base + '.mod.asc')
+        s = f_base + '.mod.asc'
+        for s_src in rep_dict.keys():
+            s_tgt = rep_dict[s_src]
+            s = s.replace(s_src, s_tgt)
+        fname_mod = Path(s)
+
         tp_name = 'sim-nam-models'
         d = {}
         nrproc = 0
@@ -520,7 +534,12 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
         tp_name = 'sim-nam-exchanges'
         d = {}
         d['exchanges'] = []
-        fname_xch = Path(f_base + '.xch.asc')
+        s = f_base + '.xch.asc'
+        for s_src in rep_dict.keys():
+            s_tgt = rep_dict[s_src]
+            s = s.replace(s_src, s_tgt)
+        fname_xch = Path(s)
+        #
         for xch_type in d_xch_files:
             for xch in d_xch_files[xch_type]:
                 exgtype   = xch_type
@@ -545,6 +564,9 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
         check_main_ini(d_ini, [section])
         check_obl_keys(d_ini, section, obl_keys)
         fname = get_key(d_ini, section, 'fname')
+        for s_src in rep_dict.keys():
+            s_tgt = rep_dict[s_src]
+            fname = fname.replace(s_src, s_tgt)
         d_ims[mt] = fname
         d = {}
         for k, v in d_ini[section].items():
@@ -565,7 +587,12 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
     if not serial_decoupled:
         tp_name = 'sim-nam-solution-models'
         for mt in d_mf6_mod:
-            fname =  Path(f_base + '.smo.'+ mt +'.asc')
+            s = f_base + '.smo.' + mt + '.asc'
+            for s_src in rep_dict.keys():
+                s_tgt = rep_dict[s_src]
+                s = s.replace(s_src, s_tgt)
+            fname = Path(s)
+            #
             d_smo[mt] = fname
             d = {}
             d['solutionmodels'] = []
@@ -593,7 +620,11 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
     if not serial_decoupled:
         tp_name = 'sim-nam-solution-models-wrapper'
         for mt in d_mf6_mod:
-            fname = Path(f_base + '.smw.asc')
+            s = f_base + '.smw.asc'
+            for s_src in rep_dict.keys():
+                s_tgt = rep_dict[s_src]
+                s = s.replace(s_src, s_tgt)
+            fname = Path(s)
             d_smw[mt] = fname
             d = {}
             d['solmodels'] = d_smo[mt]
@@ -604,7 +635,12 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod):
     ###########
     # SIM-NAM #
     ###########
-    fname_nam = Path(f_base + '.nam')
+    s = f_base + '.nam'
+    for s_src in rep_dict.keys():
+        s_tgt = rep_dict[s_src]
+        s = s.replace(s_src, s_tgt)
+    fname_nam = Path(s)
+    #
     mfsim_list = write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
         fname_nam, fname_tdis, fname_mod, fname_xch, \
         nrproc)
@@ -618,9 +654,10 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
 #############################################################################
     serial_decoupled = get_cla_key('serial_decoupled')
     cgc              = get_cla_key('cgc')
+    runopt           = get_cla_key('runopt')
     section = 'sim-nam'
     d = {}
-    for k, v in d_ini[section].items():
+    for k, v in d_ini[section+'_'+runopt].items():
         d[k] = v
     d.pop('fname')
     d['tdis6'] = fname_tdis
@@ -670,11 +707,14 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
     return mfsim_list
 
 #############################################################################
-def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
+def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
+    rep_dict):
 #############################################################################
     # first, check if the nam file is present
     if not 'gwf-nam' in d_mod_ini:
         return None
+
+    runopt = get_cla_key('runopt')
 
     ###############
     # GWF modules #
@@ -702,7 +742,14 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
                 if key == 'strt':
                     v = d_map[key]
                     if v not in d_mod_csv:
-                        fname = Path(v.replace('{{model_id}}',str(id)))
+                        # replace the strings
+                        s = v
+                        for s_src in rep_dict.keys():
+                            s_tgt = rep_dict[s_src]
+                            s = s.replace(s_src, s_tgt)
+                        s = s.replace('{{model_id}}',str(id))
+                        v = s
+                        fname = Path(v)
                         if not fname.is_file():
                            log_error(f'Invalid key value for {key} in {module}: {v}')
                         else:
@@ -714,7 +761,12 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
         else:
             for key in d_map:
                 d[key] = get_dat_tuple(d_mod_csv, d_map[key])
-        d_mf6_m[module]['fname'] = mod_dir / f"{id}.gwf.{d_mf6_m[module]['ftype']}"
+
+        if (module == 'gwf-ic') or (module == 'gwf-oc'):
+            d_mf6_m[module]['fname'] = mod_dir / f"{id}.{runopt}.gwf.{d_mf6_m[module]['ftype']}"
+        else:
+            d_mf6_m[module]['fname'] = mod_dir / f"{id}.gwf.{d_mf6_m[module]['ftype']}"
+
         template.set(d, valid_keys=d_template[module])
         template.render(d_mf6_m[module]['fname'])
 
@@ -728,11 +780,18 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
         for k, v in d_mod_ini[section].items():
             d[k] = v
         ftype = 'oc6'
-        fname = mod_dir / f"{id}.gwf.{ftype}"
+        fname = mod_dir / f"{id}.{runopt}.gwf.{ftype}"
         replace_file = ['budgetfile','headfile','concentrationfile']
         for f in replace_file:
             if f in d:
-                d[f] = Path(d[f].replace('{{model_id}}',str(id)))
+                s = d[f]
+                # replace the strings
+                for s_src in rep_dict.keys():
+                    s_tgt = rep_dict[s_src]
+                    s = s.replace(s_src, s_tgt)
+                s = s.replace('{{model_id}}',str(id))
+                #
+                d[f] = s
         template = mf6_template(section)
         template.set(d, valid_keys=d_template[section])
         template.render(fname)
@@ -754,7 +813,7 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
                 log.info(f'***** Writing single file for {package}...')
                 d = periods_list[0]
                 ftype =  package.split('-')[1]+'6'
-                fname = mod_dir / f"{id}.gwf.{ftype}"
+                fname = mod_dir / f"{id}.{runopt}.gwf.{ftype}"
                 #
                 section = f'{package}-options'
                 if section in d_mod_ini:
@@ -774,7 +833,7 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
                 for id_csv in ids_csv:
                     d = periods_list[i]; i += 1
                     ftype =  package.split('-')[1]+'6'
-                    fname = mod_dir / f"{id}.gwf.{id_csv}.{ftype}"
+                    fname = mod_dir / f"{id}.{runopt}.gwf.{id_csv}.{ftype}"
                     section = f'{package}-options'
                     if section in d_mod_ini:
                         for k, v in d_mod_ini[section].items():
@@ -802,15 +861,19 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv):
 
     if 'listing_file' in d:
         s = d['listing_file']
-        d['listing_file'] = Path(s.replace('{{model_id}}',str(id)))
+        for s_src in rep_dict.keys():
+            s_tgt = rep_dict[s_src]
+            s = s.replace(s_src, s_tgt)
+        s = s.replace('{{model_id}}',str(id))
+        d['listing_file'] = Path(s)
     template.set(d, valid_keys=d_template[section])
-    fname = mod_dir / f"{id}.gwf.nam"
+    fname = mod_dir / f"{id}.{runopt}.gwf.nam"
     template.render(fname)
 
     return fname
 
 #############################################################################
-def write_gwt_model(id, d_mod_ini, d_template, mod_dir, d_mod_csv): #TODO
+def write_gwt_model(id, d_mod_ini, d_template, mod_dir, d_mod_csv, rep_dict): #TODO
 #############################################################################
     # first, check if the nam file is present
     if not 'gwt-nam' in d_mod_ini:
@@ -904,7 +967,8 @@ def mf6_model_admin(d_ini, d_xch, mf6_mod_lst):
     return d_mf6_mod
 
 #############################################################################
-def write_model(id, d_ini, d_props, d_mod_ini_list, d_template, single_model):
+def write_model(id, d_ini, d_props, d_mod_ini_list, d_template, \
+    single_model, rep_dict):
 #############################################################################
     log.info(f'Writing MODFLOW 6 model files for id={id}...')
     #
@@ -926,14 +990,20 @@ def write_model(id, d_ini, d_props, d_mod_ini_list, d_template, single_model):
     d_mod_csv = read_csv(str(p))
 
     # models
-    gwf_mfname = write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv)
-    gwt_mfname = write_gwt_model(id, d_mod_ini, d_template, mod_dir, d_mod_csv)
+    gwf_mfname = write_gwf_model(id, nodes, nja, d_mod_ini, d_template, \
+        mod_dir, d_mod_csv, rep_dict)
+    gwt_mfname = write_gwt_model(id, d_mod_ini, d_template, mod_dir, \
+        d_mod_csv, rep_dict)
 
     # get partition number
     parallel = get_cla_key('parallel')
     if parallel:
         field = get_key(d_ini, '_general', 'props_part_field')
-        part = get_key(d_props, str(id), field, eval_k=True)
+        try:
+            part = get_key(d_props, str(id), field, eval_k=True)
+        except:
+            log.info('Taking model ID as partition number.')
+            part = int(id)
     else:
         part = 0
 
@@ -983,7 +1053,8 @@ def pre():
     f_ini = get_cla_key('ini')
 
     d_ini = read_ini(f_ini)
-    check_main_ini(d_ini,['_general', 'sim-tdis', 'sim-nam'])
+    check_main_ini(d_ini,['_general', 'sim-tdis'+'_'+get_cla_key('runopt'), \
+        'sim-nam'+'_'+get_cla_key('runopt')])
     #
     # get the list of model ids
     if key_present(d_ini, '_general', 'model_id'):
@@ -992,6 +1063,10 @@ def pre():
     else:
         # ALL ids
         id_list = []
+    if key_present(d_ini, '_general', 'replace_dict'):
+        rep_dict = get_key(d_ini, '_general', 'replace_dict', eval_k=True)
+    else:
+        rep_dict = {}
 
     # read the properties
     f = get_key(d_ini, '_general', 'props_csv')
@@ -1006,7 +1081,7 @@ def pre():
         id_list = list(d_props.keys())
 
     # read the model definitions
-    mod_def = get_key(d_ini, '_general', 'model_definition', eval_k=True)
+    mod_def = get_key(d_ini, '_general', 'model_definition'+'_'+ get_cla_key('runopt'), eval_k=True)
     if len(mod_def) == 1:
         single_model = True
     else:
@@ -1036,17 +1111,20 @@ def pre():
     for id in id_list:
         i += 1
         log.info(10*'='+f' Processing {i:06d}/{n:06d} '+10*'=')
-        lst = write_model(id, d_ini, d_props, d_mod_ini_list, d_template, single_model)
+        lst = write_model(id, d_ini, d_props, d_mod_ini_list, d_template, \
+            single_model, rep_dict)
         mf6_mod_lst.extend(lst)
 
     # set up the administration
     d_mf6_mod = mf6_model_admin(d_ini, d_xch, mf6_mod_lst)
 
     # write the exchanges
-    d_xch_files = write_exchanges(d_ini, d_xch, d_template, d_mf6_mod)
+    d_xch_files = write_exchanges(d_ini, d_xch, d_template, d_mf6_mod, \
+        rep_dict)
 
     # write simulation files
-    mfsim_list = write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod)
+    mfsim_list = write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, \
+        rep_dict)
 
     return mfsim_list
 
@@ -1078,6 +1156,14 @@ def post():
 #############################################################################
 def main():
 #############################################################################
+    runopt = get_cla_key('runopt')
+    if ((runopt != 'ss') and (runopt != 'tr')):
+        log.error('Invalid run option. Valid are: ss and tr.')
+    if runopt == 'ss':
+        log.info(10*'*'+' Steady-state simulation '+10*'*')
+    else:
+        log.info(10*'*'+' Transient simulation '+10*'*')
+
     if get_cla_key('pre'):
         mfsim_list = pre()
     else:
