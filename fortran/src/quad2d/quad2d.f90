@@ -4077,21 +4077,28 @@ subroutine quad_partition()
       !
       ! store the partition information
       if (lwpartinfo) then
-        ic = csv_part%get_col('load_'//ta([i_sel]))
-        do ir = 1, met%nparts
-          call csv_part%set_val(ic=ic, ir=ir, r8v=real(met%load(ir),R8B), create_s=.true.)
-        end do
-        do ir = met%nparts + 1, nparts_max
-          call csv_part%set_val(ic=ic, ir=ir, r8v=R8ZERO, create_s=.true.)
-        end do
-        ic = csv_part%get_col('load_imbalance_'//ta([i_sel]))
-        do ir = 1, met%nparts
-          call csv_part%set_val(ic=ic, ir=ir, r8v=met%loadimbal(ir), create_s=.true.)
-        end do
-        do ir = met%nparts + 1, nparts_max
-          call csv_part%set_val(ic=ic, ir=ir, r8v=R8ZERO, create_s=.true.)
-        end do
-      end if 
+        if (met%nparts > 1) then
+          ic = csv_part%get_col('load_'//ta([i_sel]))
+          do ir = 1, met%nparts
+            call csv_part%set_val(ic=ic, ir=ir, r8v=real(met%load(ir),R8B), create_s=.true.)
+          end do
+          do ir = met%nparts + 1, nparts_max
+            call csv_part%set_val(ic=ic, ir=ir, r8v=R8ZERO, create_s=.true.)
+          end do
+          ic = csv_part%get_col('load_imbalance_'//ta([i_sel]))
+          do ir = 1, met%nparts
+            call csv_part%set_val(ic=ic, ir=ir, r8v=met%loadimbal(ir), create_s=.true.)
+          end do
+          do ir = met%nparts + 1, nparts_max
+            call csv_part%set_val(ic=ic, ir=ir, r8v=R8ZERO, create_s=.true.)
+          end do
+        else
+          ic = csv_part%get_col('load_'//ta([i_sel]))
+          call csv_part%set_val(ic=ic, ir=1, r8v=real(sum(nodes_arr),R8B), create_s=.true.)
+          ic = csv_part%get_col('load_imbalance_'//ta([i_sel]))
+          call csv_part%set_val(ic=ic, ir=1, r8v=R8ZERO, create_s=.true.)
+        end if
+      end if
     else
       call logmsg('No data for selection '//ta([i_sel])//'...')
     end if
