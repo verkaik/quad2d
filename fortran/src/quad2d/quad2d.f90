@@ -2867,6 +2867,7 @@ subroutine quad_mf6_xch_write_merge()
   !
   character(len=1) :: slash
   character(len=MXSLEN) :: d, s, id, f
+  character(len=MXSLENLONG) :: s_long
   !
   integer(I4B) :: lid, im, jm, km, nim, inbr, jnbr, lid_nbr, iact, nlid_nbr
   integer(I4B) :: ihc_min, ihc_max, n1, n2, iexg, imm, jmm
@@ -2906,8 +2907,8 @@ subroutine quad_mf6_xch_write_merge()
   ! first, flag the quads and set im
   do im = 1, nim
     ! get the local lids
-    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
-    call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+    call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
     do i = 1, nlid
       lid = lid_arr(i)
       lid2im_arr(lid) = im
@@ -2917,8 +2918,8 @@ subroutine quad_mf6_xch_write_merge()
   allocate(nbr_im(nim))
   do im = 1, nim
     ! create the mappings
-    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
-    call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+    call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
     allocate(im_nodes_offset(nlid), lid_arr_inv(xq%n)); lid_arr_inv = 0
     n = 0
     do i = 1, nlid
@@ -2949,8 +2950,8 @@ subroutine quad_mf6_xch_write_merge()
       if (nbr_im(jm) == 1) then
         !
         ! create the mappings for the neighbor
-        call csv%get_val(ir=jm, ic=csv%get_col('lid_merged'), cv=s)
-        call parse_line(s=s, i4a=lid_arr_nbr, token_in=';'); nlid_nbr = size(lid_arr_nbr)
+        call csv%get_val(ir=jm, ic=csv%get_col('lid_merged'), cv=s_long)
+        call parse_line(s=s_long, i4a=lid_arr_nbr, token_in=';'); nlid_nbr = size(lid_arr_nbr)
         allocate(jm_nodes_offset(nlid_nbr), lid_arr_nbr_inv(xq%n)); lid_arr_nbr_inv = 0
         n = 0
         do i = 1, nlid_nbr
@@ -3262,7 +3263,8 @@ subroutine quad_mf6_data_write_merge()
   !
   logical :: li4a, lr8a, lr8x, lfirst, lwritelog
   !
-  character(len=MXSLEN) :: s, d, f_csv_dat, f_binpos, f_log, id_pref, id
+  character(len=MXSLEN) :: d, f_csv_dat, f_binpos, f_log, id_pref, id
+  character(len=MXSLENLONG) :: s_long
   !
   integer(I4B), dimension(:), allocatable :: im_arr, lid_arr, qi4a, i4a
   integer(I4B), dimension(:), allocatable ::  nodesa, nodesa_offset
@@ -3304,8 +3306,8 @@ subroutine quad_mf6_data_write_merge()
   !
   do im = im0, im1
     ! get the local lids
-    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
-    call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+    call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+    call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
     !
     ! read the nodes array
     if (allocated(nodesa)) deallocate(nodesa)
@@ -3917,7 +3919,7 @@ subroutine quad_partition()
     n = size(sel_nodes_arr)
   end if
   !
-  call parse_line(s=sel_val, sa=sel_val_arr, token_in=',')
+  call parse_line(s=sel_val, sa_short=sel_val_arr, token_in=',')
   if (n /= size(sel_val_arr)) then
     call errmsg('key sel_npart and/or sel_nodes and/or sel_val.')
   else

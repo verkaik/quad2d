@@ -2293,7 +2293,7 @@ module utilsmod
     ! -- locals
     type(tNum), pointer :: num => null()
     logical :: create
-    character(len=MXSLEN) :: s
+    character(len=MXSLENLONG) :: s
     integer(I4B) :: n, ns
 ! ------------------------------------------------------------------------------
     !
@@ -2386,7 +2386,6 @@ module utilsmod
     character(len=*), intent(out), optional :: cv
     ! -- locals
     type(tNum), pointer :: num => null()
-    character(len=MXSLEN) :: s
     integer(I4B) :: n
     logical :: lset
 ! ------------------------------------------------------------------------------
@@ -3147,7 +3146,8 @@ module utilsmod
     ! -- locals
     type(tVal), pointer :: v => null()
     character(len=MXSLENLONG) :: s
-    character(len=MXSLEN), dimension(:), allocatable :: hdr_keys, sa
+    character(len=MXSLEN), dimension(:), allocatable :: hdr_keys
+    character(len=MXSLENLONG), dimension(:), allocatable :: sa
     integer(I4B) :: iu, ios, nr, nc, ir, ic, nr_max_loc, nc_max_loc
 ! ------------------------------------------------------------------------------
     !
@@ -3191,7 +3191,7 @@ module utilsmod
       if (ios == 0) then
         if (len_trim(s) > 0) then
           ir = ir + 1
-          call parse_line(s, sa, token_in=',')
+          call parse_line(s=s, sa_long=sa, token_in=',')
           if (size(sa) /= this%nc) then
             call errmsg('tCSV_read: could not read line.')
           end if
@@ -3739,7 +3739,6 @@ module utilsmod
     !
     ! -- locals
     type(tVal), pointer :: v => null()
-    character(len=MXSLEN) :: s
     integer(I4B) :: jc
 ! ------------------------------------------------------------------------------
     !
@@ -4905,14 +4904,16 @@ module utilsmod
     return
   end subroutine insert_tab
   
-  subroutine parse_line(s, sa, i4a, token_in)
+  subroutine parse_line(s, sa_short, i4a, token_in, sa_long)
 ! ******************************************************************************
     ! -- arguments
     character(len=*), intent(in) :: s
-    character(len=MXSLEN), dimension(:), allocatable, intent(inout), optional :: sa
+    character(len=MXSLEN),     dimension(:), allocatable, intent(inout), optional :: sa_short
+    character(len=MXSLENLONG), dimension(:), allocatable, intent(inout), optional :: sa_long
     integer(I4B), dimension(:), allocatable, intent(inout), optional :: i4a
     character(len=1), intent(in), optional :: token_in
     ! -- locals
+    character(len=MXSLENLONG), dimension(:), allocatable :: sa
     character(len=1) :: token
     character(len=MXSLENLONG) :: st
     logical :: ltab
@@ -4953,7 +4954,7 @@ module utilsmod
           exit
         end if
         if (iact == 2) then
-          if (present(sa)) then
+          if (present(sa_short).or.present(sa_long)) then
             sa(n) = st(1:i-1)
           end if
           if (present(i4a)) then
@@ -4969,7 +4970,7 @@ module utilsmod
       end do
       if (iact == 1) then
         if (n > 0) then
-          if (present(sa)) then
+          if (present(sa_short).or.present(sa_long)) then
             if (allocated(sa)) deallocate(sa)
             allocate(sa(n))
           end if
@@ -4984,6 +4985,29 @@ module utilsmod
     if (n == 0) then
       call errmsg('parse_line: empty string')
     end if
+    !
+    if (present(sa_short)) then
+      if (allocated(sa_short)) deallocate(sa_short)
+      allocate(sa_short(n))
+      do i = 1, n
+        m = len_trim(sa(i))
+        if (m > MXSLEN) then
+          call errmsg('parse_line: string too long.')
+        else
+          sa_short(i) = trim(sa(i))
+        end if
+      end do
+    end if
+    if (present(sa_long)) then
+      if (allocated(sa_long)) deallocate(sa_long)
+      allocate(sa_long(n))
+      do i = 1, n
+        m = len_trim(sa(i))
+        sa_long(i) = trim(sa(i))
+      end do
+    end if
+    !
+    if (allocated(sa)) deallocate(sa)
     !
     return
   end subroutine parse_line
