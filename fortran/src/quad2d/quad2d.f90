@@ -3815,7 +3815,9 @@ subroutine quad_grid_gen_merge()
     call xq%merge_disu(lid_arr, disu_arr, disu_merge)
     !
     ! write the merged disu data
-    call disu_merge%write(write_opt=1)
+    if (lwrite_disu) then
+      call disu_merge%write(write_opt=1)
+    end if
     !
     ! write all seperate disu data; and clean
     do km = 1, nlid
@@ -3828,8 +3830,10 @@ subroutine quad_grid_gen_merge()
       end if
       !
       id_pref = '_'//ta([lid_arr(km)])
-      call disu%write(write_opt=1, id_pref=id_pref)
-      call disu%write(write_opt=2, id_pref=id_pref)
+      if (lwrite_disu) then
+        call disu%write(write_opt=1, id_pref=id_pref)
+        call disu%write(write_opt=2, id_pref=id_pref)
+      end if
       call disu%clean()
     end do
     !
