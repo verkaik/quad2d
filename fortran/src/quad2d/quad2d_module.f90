@@ -5819,6 +5819,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (write_nod_map) then
       allocate(f_tile_nodmap(ntile))
     end if
+    if (ntile > 1) then
+      call logmsg('Number of tiles being used: '//ta([ntile]))
+    end if
     !
     if (.false.) then
       do lid = lid0, lid1
@@ -5936,7 +5939,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                     r4v = xr4_q(ic,ir)
                     if (r4v /= mvr4) then
                       do jr = ir0, ir1; do jc = ic0, ic1
-                        xr4_t(jc,jr) = r4v
+                        if (valid_icir(jc, jr, bbip%ncol, bbip%nrow)) then
+                          xr4_t(jc,jr) = r4v
+                        end if
                       end do; end do
                     end if
                   else
@@ -5995,7 +6000,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                             call errmsg('tQuads_write_mf6_heads: program error.')
                           end if
                           do jr = ir0, ir1; do jc = ic0, ic1
-                            nodmap_t(jc,jr) = nod
+                            if (valid_icir(jc, jr, bbip%ncol, bbip%nrow)) then
+                              nodmap_t(jc,jr) = nod
+                            end if
                           end do; end do
                         end if
                       end if
