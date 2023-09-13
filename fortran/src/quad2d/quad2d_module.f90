@@ -2,7 +2,7 @@ module quad2dModule
   ! modules
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, &
     I1ZERO, I2ZERO, I4ZERO, R8ZERO, I1ONE, I4ONE, R4ZERO, R4ONE, R8ONE, I4MINONE, &
-    R8HALF, R4TINY, MXSLEN, MXSLENSHORT, &
+    R8HALF, R4TINY, MXSLEN, MXSLENSHORT, MXSLENLONG, &
     i_c, i_i1, i_i2, i_i4, i_i8, i_r4, i_r8,  &
     logmsg, errmsg, tBb, tBbX, tBbObj, ta, icrl_to_node, node_to_icrl, &
     tGridArr, tGrid, get_xy, get_icr, valid_icr, get_mapped_icr, point_in_bb, &
@@ -5686,7 +5686,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     character(len=MXSLEN), dimension(:), allocatable :: pfix_tile, f_tile, mv_tile
     character(len=MXSLEN), dimension(:), allocatable :: f_tile_nodmap, mv_tile_nodmap
     character(len=MXSLEN) :: f, d, f_csv_dat
-    character(len=MXSLEN) :: s
+    character(len=MXSLENLONG) :: s_long
     integer(I4B) :: lid, nmod, nact, ntile, itile, bnc, bnr
     integer(I4B) :: ic0, ir0, ic1, ir1, ic, ir, jc, jr, kc, kr, ilm, il, jl
     integer(I4B) :: i, nodes, nodes_nodmap, kper
@@ -5714,8 +5714,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       allocate(lid2im_arr(this%n)); lid2im_arr = 0
       do im = 1, nim
         ! get the local lids
-        call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
-        call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+        call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+        call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
         do i = 1, nlid
           lid = lid_arr(i)
           lid2im_arr(lid) = im
@@ -5736,7 +5736,10 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       q => this%get_quad(lid)
       if (q%get_flag(active=LDUM)) then
         if (merge) then
-          im = lid2im_arr(lid) 
+          im = lid2im_arr(lid)
+          if (im == 0) then
+            call errmsg('tQuads_write_mf6_heads: program error, im=0.')
+          end if
           call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
         else
           call q%get_prop_csv(ikey=i_head, cv=f)
@@ -5860,8 +5863,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               !
               if (merge) then
                 im = lid2im_arr(lid)
-                call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s)
-                call parse_line(s=s, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+                call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+                call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
                 nodes_offset = 0
                 do i = 1, nlid
                    lid2 = lid_arr(i)
