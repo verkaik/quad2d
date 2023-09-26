@@ -28,6 +28,7 @@ module vrt_module
   integer(I4B), parameter :: i_NODATA            = 7
   integer(I4B), parameter :: i_ComplexSource_end = 8
   integer(I4B), parameter :: n_raw_mid = i_ComplexSource_end
+  public :: i_SourceFilename
   
   ! end part
   integer(I4B), parameter :: i_VRTRasterBand_end =  1
@@ -68,7 +69,7 @@ module vrt_module
     procedure :: write => tVrtRaw_write
   end type tVrtRaw
   !
-  type :: tVrtTile
+  type, public :: tVrtTile
     type(tHdr), pointer :: hdrg => null()
     type(tBbX) :: src_bbx
     type(tBb)  :: src_bbi
@@ -1136,8 +1137,8 @@ module vrt_module
     return
   end subroutine tVrt_write
   !
-  subroutine tVrt_read_full_tile(this, itile, hdrg, xi1, xi2, xi4, &
-    mvi1, mvi2, mvi4, renum, nid, f_csv, clean_hdrg)
+  subroutine tVrt_read_full_tile(this, itile, hdrg, xi4, xr4, &
+    mvi4, mvr4, renum, nid, f_csv, clean_hdrg)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1148,13 +1149,11 @@ module vrt_module
     !
     type(tHdr), intent(out), optional, pointer :: hdrg
     !
-    integer(I1B), dimension(:,:), allocatable, intent(inout), optional :: xi1
-    integer(I2B), dimension(:,:), allocatable, intent(inout), optional :: xi2
     integer(I4B), dimension(:,:), allocatable, intent(inout), optional :: xi4
+    real(R4B),    dimension(:,:), allocatable, intent(inout), optional :: xr4
     !
-    integer(I1B), intent(out), optional :: mvi1
-    integer(I2B), intent(out), optional :: mvi2
     integer(I4B), intent(out), optional :: mvi4
+    real(R4B),    intent(out), optional :: mvr4
     !
     logical, intent(in), optional :: renum
     integer(I4B), intent(inout), optional :: nid
@@ -1219,6 +1218,11 @@ module vrt_module
           if (allocated(xi4)) deallocate(xi4)
           if (.not.present(mvi4)) call errmsg('tVrt_read_full_tile: mvi4.')
           call tile%hdrg%get_grid(xi4=xi4, mvi4=mvi4)
+        end if
+        if (present(xr4)) then
+          if (allocated(xr4)) deallocate(xr4)
+          if (.not.present(mvr4)) call errmsg('tVrt_read_full_tile: mvr4.')
+          call tile%hdrg%get_grid(xr4=xr4, mvr4=mvr4)
         end if
         if (present(hdrg)) then
           hdrg => tile%hdrg
