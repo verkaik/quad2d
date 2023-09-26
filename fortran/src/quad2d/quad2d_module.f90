@@ -475,7 +475,8 @@ module quad2dModule
   !public :: tLayerModels, tLayerModel, tLookupTable
   public :: get_number_of_levels, get_refinement_level
   public :: mf6_data_write
-
+  public :: valid_icir
+  
   save
   
   contains
@@ -5738,7 +5739,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         if (merge) then
           im = lid2im_arr(lid)
           if (im == 0) then
-            call errmsg('tQuads_write_mf6_heads: program error, im=0.')
+            call errmsg('tQuads_write_mf6_heads: program error 1, im=0.')
           end if
           call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
         else
@@ -5820,7 +5821,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       allocate(f_tile_nodmap(ntile))
     end if
     if (ntile > 1) then
-      call logmsg('Number of tiles being used: '//ta([ntile]))
+      call logmsg('Number of tiles being used: '//ta([ntile])// &
+        ' ('//ta([bnc])//', '//ta([bnr])//')')
     end if
     !
     if (.false.) then
@@ -5885,7 +5887,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               ! check dimensions
               nc = (bbx%xur-bbx%xll)/cs_min_rea; nr = (bbx%yur-bbx%yll)/cs_min_rea
               if ((size(nodmap_q,1) /= nc).or.(size(nodmap_q,2) /= nr)) then
-                call errmsg('tQuads_write_mf6_heads: program error.')
+                call errmsg('tQuads_write_mf6_heads: program error 2.')
               end if
               !
               if (allocated(nodmap_q)) then
@@ -5931,18 +5933,19 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                                            cyll + bbxp%cs*R8HALF, &
                       bbxp%xll, bbxp%yur, bbxp%cs)
                     !
-                    ! check
-                    if (((ic1-ic0+1)/=bs).or.((ir1-ir0+1)/=bs)) then
-                      call errmsg('tQuads_write_mf6_heads: program error.')
-                    end if
-                    !
-                    r4v = xr4_q(ic,ir)
-                    if (r4v /= mvr4) then
-                      do jr = ir0, ir1; do jc = ic0, ic1
-                        if (valid_icir(jc, jr, bbip%ncol, bbip%nrow)) then
+                    if ((valid_icir(ic0, ir0, bbip%ncol, bbip%nrow)).and. &
+                        (valid_icir(ic1, ir1, bbip%ncol, bbip%nrow))) then
+                      ! check
+                      if (((ic1-ic0+1)/=bs).or.((ir1-ir0+1)/=bs)) then
+                        call errmsg('tQuads_write_mf6_heads: program error 3.')
+                      end if
+                      !
+                      r4v = xr4_q(ic,ir)
+                      if (r4v /= mvr4) then
+                        do jr = ir0, ir1; do jc = ic0, ic1
                           xr4_t(jc,jr) = r4v
-                        end if
-                      end do; end do
+                        end do; end do
+                      end if
                     end if
                   else
                     if (write_nod_map) nodmap_q(ic,ir) = 0
@@ -5993,17 +5996,18 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                                                cyll + bbxp%cs*R8HALF, &
                           bbxp%xll, bbxp%yur, bbxp%cs)
                         !
-                        n = nodmap_q(ic,ir)
-                        if (n /= 0) then
-                          nod = i4wk(n - nod_min + 1)
-                          if (nod == 0) then
-                            call errmsg('tQuads_write_mf6_heads: program error.')
-                          end if
-                          do jr = ir0, ir1; do jc = ic0, ic1
-                            if (valid_icir(jc, jr, bbip%ncol, bbip%nrow)) then
-                              nodmap_t(jc,jr) = nod
+                        if ((valid_icir(ic0, ir0, bbip%ncol, bbip%nrow)).and. &
+                            (valid_icir(ic1, ir1, bbip%ncol, bbip%nrow))) then
+                          n = nodmap_q(ic,ir)
+                          if (n /= 0) then
+                            nod = i4wk(n - nod_min + 1)
+                            if (nod == 0) then
+                              call errmsg('tQuads_write_mf6_heads: program error 4.')
                             end if
-                          end do; end do
+                            do jr = ir0, ir1; do jc = ic0, ic1
+                              nodmap_t(jc,jr) = nod
+                            end do; end do
+                          end if
                         end if
                       end if
                     end do; end do
