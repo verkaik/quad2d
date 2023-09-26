@@ -191,7 +191,7 @@ contains
      
   end subroutine metis_init
   
-  subroutine metis_init_lump(this, ids, nparts, verbose, weight)
+  subroutine metis_init_lump(this, ids, nparts, verbose, weight, imbal)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -203,6 +203,7 @@ contains
     integer(I4B), intent(in) :: nparts
     logical, intent(in), optional :: verbose
     integer(I4B), dimension(:,:), intent(in), optional :: weight
+    real(R4B), intent(in), optional :: imbal
     ! -- local
     logical :: lweight
     integer(I4B) :: nc, nr, ic, ir, i, j, id, maxid, nja, n, ir0, ir1, ic0, ic1
@@ -358,7 +359,11 @@ contains
     this%ncon = 1
     allocate(this%tpwgts(this%nparts*this%ncon))
     allocate(this%ubvec(this%ncon))
-    this%ubvec(1) = tolimbal
+    if (present(imbal)) then
+      this%ubvec(1) = imbal
+    else
+      this%ubvec(1) = tolimbal
+    end if
     this%tpwgts = 1./real(this%nparts)
     this%vsize = 1
     !
