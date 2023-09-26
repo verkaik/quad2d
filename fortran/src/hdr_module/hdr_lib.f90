@@ -3,7 +3,8 @@ module hdrModule
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, i_i1, i_i2, i_i4, i_i8, i_r4, i_r8, &
     MXSLEN, change_case, logmsg, errmsg, tNum, open_file, parse_line, ta, &
     get_bb_extent, R8HALF, R8ONE, tBb, tBbX, get_slash, get_xy, cast_2darray, strip_ext, &
-    i_p, i_n, i_s, i_w, i_e, i_nw, i_ne, i_sw, i_se, bilinear_interpolation, get_stencil
+    i_p, i_n, i_s, i_w, i_e, i_nw, i_ne, i_sw, i_se, bilinear_interpolation, get_stencil, &
+    check_nan
   !
   implicit none
   !
@@ -2122,6 +2123,8 @@ subroutine hdrhdr_clean(this)
       call logmsg('---> Upscaling: geometric <---')
     case(i_uscl_sumcdr)
       call logmsg('---> Upscaling: sum conductance <---')
+    case default
+      call logmsg('Not supported upscaling method.')
     end select
     !
     src_hdr => this%hdr; dat => this%dat
@@ -2148,15 +2151,16 @@ subroutine hdrhdr_clean(this)
         !
         select case(i_uscl)
         case(i_uscl_arith, i_uscl_nodata)
-          if (n > 0) i4s = i4s/n
+          if (n > 0) then
+            xi4(jc,jr) = i4s/n
+          end if
         case(i_uscl_geom)
-         if (n > 0) i4s = int(exp(es/n),i4b)
+         if (n > 0) then
+           xi4(jc,jr) = int(exp(es/n),i4b)
+         end if
         case(i_uscl_sumcdr)
-         ! nothing
+          xi4(jc,jr) = i4s
         end select
-        !
-        ! set the scaled value
-        xi4(jc,jr) = i4s
       end do; end do
       !
       call this%replace_grid(xi4=xi4, mvi4=src_hdr%mvi4)
@@ -2175,15 +2179,16 @@ subroutine hdrhdr_clean(this)
         !
         select case(i_uscl)
         case(i_uscl_arith, i_uscl_nodata)
-          if (n > 0) r4s = r4s/n
+          if (n > 0) then
+            xr4(jc,jr) = r4s/n
+          end if
         case(i_uscl_geom)
-          if (n > 0) r4s = real(exp(es/n),r4b)
+          if (n > 0) then
+            xr4(jc,jr) = real(exp(es/n),r4b)
+          end if  
         case(i_uscl_sumcdr)
-         ! nothing
+          xr4(jc,jr) = r4s
         end select
-        !
-        ! set the scaled value
-        xr4(jc,jr) = r4s
       end do; end do
       !
       call this%replace_grid(xr4=xr4, mvr4=src_hdr%mvr4)
@@ -4714,8 +4719,13 @@ subroutine hdrhdr_clean(this)
     real(R4B),    dimension(:), intent(out), optional :: r4a
     real(R8B),    dimension(:), intent(out), optional :: r8a
     ! -- local
+    type(tHdrHdr), pointer :: hdr => null()
+    logical :: has_nan
+    integer(I4B) :: i, n
     integer(I8B) :: p
 ! ------------------------------------------------------------------------------
+    !
+    hdr => this%hdr
     !
     if (present(i1a)) then
       p = 1+((int(irow,I8B)-1)*int(this%hdr%ncol,I8B)+int(icol,I8B)-1)*I1B
@@ -4740,6 +4750,23 @@ subroutine hdrhdr_clean(this)
     if (present(r4a)) then
       p = 1+((int(irow,I8B)-1)*int(this%hdr%ncol,I8B)+int(icol,I8B)-1)*R4B
       read(unit=this%iu_bin,pos=p) r4a
+      !
+      ! check for nans
+      has_nan = .false.; n = 0
+      do i = 1, size(r4a)
+        if (check_nan(r4a(i))) then
+          has_nan = .true.
+          n = n + 1
+        end if
+      end do
+      if (has_nan) then
+        if (.not.hdr%lmvr4) then
+          call errmsg('hdr_read_arr: cannot set missing value for r4a')
+        end if
+        do i = 1, size(r4a)
+          if (check_nan(r4a(i))) r4a(i) = hdr%mvr4
+        end do
+      end if
     end if
     !
     if (present(r8a)) then
