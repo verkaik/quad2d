@@ -5,11 +5,11 @@ module main_module
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
-    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C
-  use vrt_module, only: tVrt
+    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid
+  use vrt_module, only: tVrt, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
-    i_dscl_nointp, i_dscl_intp
+    i_dscl_nointp, i_dscl_intp, i_uscl_arith
   !
   use quad2dModule, only: tQuads, tQuad, tIntf, tNbrIntf, &
     tLayerModels, tLayerModel, tDataModels, tDataModel, tDataModelData, &
@@ -17,8 +17,9 @@ module main_module
     i_lid, i_gid, i_i_graph, i_lay_mod,  &
     i_tgt_cs_min, i_tgt_cs_min_lay_beg, i_tgt_cs_min_lay_end, i_tgt_cs_min_dz_top, &
     i_tgt_cs_max, i_head, i_merge, n_prop_field, &
-    tMF6Disu, mf6_data_write, tMF6Exchange
+    tMF6Disu, mf6_data_write, tMF6Exchange, valid_icir
   !
+  use multigrid_module, only: tMultiGrid, tMultiGridArray
   use mf6_wbd_mod, only: tMf6Wbd, MAX_NR_CSV
   use metis_module, only: tMetis
   
@@ -59,6 +60,7 @@ module main_module
   character(len=MXSLEN) :: csv_field
   character(len=MXSLEN) :: f_in_idf
   character(len=MXSLEN) :: d_log
+  character(len=MXSLEN) :: f_in_flt, f_in_vrt_1, f_in_vrt_2, f_out_vrt, post_fix
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -332,6 +334,15 @@ subroutine quad_settings()
       call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields)
     end if
     !
+  case('mf6_post_wtd')
+    !=========!
+    run_opt = 20
+    !=========!
+    call ini%get_val(sect, 'f_in_flt_ahn',   cv=f_in_flt)
+    call ini%get_val(sect, 'f_in_vrt_head',  cv=f_in_vrt_1)
+    call ini%get_val(sect, 'f_in_vrt_nod',   cv=f_in_vrt_2)
+    call ini%get_val(sect, 'f_out_vrt_wtd',  cv=f_out_vrt)
+    call ini%get_val(sect, 'f_out_flt_post', cv=post_fix)
   case('fill_gap')
     !=========!
     run_opt = 9
@@ -1111,19 +1122,27 @@ subroutine quad_grid_balancing()
   type(tCSV), pointer    :: csv => null()
   type(tMetis), pointer :: met => null()
   !
+  real(R8B), parameter :: wgt_fac = 0.7d0
+  real(R8B), parameter :: wgt_per = 0.05d0
+  
   logical :: lgidfirst, ldone, lmetis
   character(len=MXSLEN) :: f
-  integer(I4B) :: weight_mv, gid_max_loc, iter, j
+  integer(I4B) :: weight_mv, gid_max_loc, iter, j, iopt
   integer(I4B) :: lid_new, gid_new, iact, nact, nmet, np_met
-  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p
+  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p, area
   integer(I4B), dimension(:,:), allocatable :: mask, part
-  integer(I4B), dimension(:,:), allocatable :: weight, qweight
+  integer(I4B), dimension(:,:), allocatable :: weight, qweight, ini_weight
   integer(I4B), dimension(:), allocatable :: gid_first, wgt_sort_lid
-  integer(I4B), dimension(:), allocatable :: gids_new
+  integer(I4B), dimension(:), allocatable :: gids_new, gid2part
   real(R4B), dimension(:), allocatable :: wgt_sort
   real(R4B), dimension(:,:), allocatable :: ximbal
-  real(R8B) :: wgt_avg, wgt_tgt, wgt_tot, wgt_q, imbal
+  real(R8B) :: wgt_avg, wgt_tgt, wgt_max, wgt_tot, wgt_q, imbal, area_q, area_max
 ! ------------------------------------------------------------------------------
+  
+  area_max = 12.5d0 !km2
+  area_max = area_max * 1000.d0 * 1000.d0 ! m2
+  !
+  iopt = 2
   !
   allocate(hdrg_gid)
   call hdrg_gid%read_full_grid(f_gid_in)
@@ -1211,6 +1230,27 @@ subroutine quad_grid_balancing()
     end if
   end do
   !
+  if (.true.) then
+    allocate(ini_weight(nc,nr)); ini_weight = 0
+    do lid = 1, xq%n
+      q => xq%get_quad(lid)
+      if (q%get_flag(active=LDUM)) then
+        call q%get_bb(child_bbi=bb)
+        call get_mask(xid, q%gid, bb, mask)
+        call q%get_prop(weight=wgt_q)
+        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+          if (mask(jc,jr) == 1) then
+            ini_weight(ic,ir) = wgt_q
+          end if
+        end do; end do
+      end if
+    end do
+    f = trim(f_gid_out)//'_ini_weight'
+    call writeflt(f, ini_weight, nc, nr, xll, yll, cs_gid, I4ZERO)
+    deallocate(ini_weight)
+  end if
+  
   np_tgt = xq%get_number_active(); np_strt = np_tgt
   call logmsg('Starting with '//ta([np_strt])//' parts...')
   call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
@@ -1231,10 +1271,21 @@ subroutine quad_grid_balancing()
         wgt_sort(lid) = R4ZERO
       end if
     end do
-    !wgt_sort = -wgt_sort
-    call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
-    !wgt_sort = -wgt_sort
-    !
+    if (iopt == 2) then
+      wgt_sort = -wgt_sort
+      call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
+      wgt_sort = -wgt_sort
+      i = nint(wgt_per *real(xq%n))
+      wgt_tgt = wgt_sort(i)
+      call logmsg('Target weight: '//ta([wgt_tgt]))
+      !max_np = wgt_tot/wgt_tgt
+      !call logmsg('Target number of parts: '//ta([max_np])// &
+      !  ', max weight: '//ta([wgt_tgt]))
+    else
+      !wgt_sort = -wgt_sort
+      call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
+      !wgt_sort = -wgt_sort
+    end if
     ldone = .true.
     n = xq%n; lid_new = n; nmet = 0; np_met = 0
     do i = 1, n
@@ -1247,19 +1298,44 @@ subroutine quad_grid_balancing()
           call errmsg('Quad_grid_balancing: program error.')
         end if
         !
-        wgt_avg = wgt_tot/np_tgt; wgt_tgt = tgt_imbal * wgt_avg
-        !call logmsg('New average: '//ta([wgt_avg]))
-        lmetis = .false.
-        if (wgt_q > wgt_tgt) then
-          np_full = nint(wgt_q/wgt_tgt)
-          np_full = max(2,np_full)
-          if (np_full > 1) then
-            lmetis = .true.
+        if (iopt == 1) then
+          wgt_avg = wgt_tot/np_tgt
+          wgt_tgt = tgt_imbal * wgt_avg
+          !call logmsg('New average: '//ta([wgt_avg]))
+          lmetis = .false.
+          if (wgt_q > wgt_tgt) then
+            np_full = nint(wgt_q/wgt_tgt)
+            np_full = max(2,np_full)
+            if (np_full > 1) then
+              lmetis = .true.
+            end if
+            np_full = min(np_full, max_np - np_tgt + 1)
+            if (np_full <= 1) then
+              lmetis = .false.
+            end if
           end if
-          np_full = min(np_full, max_np - np_tgt + 1)
-          if (np_full <= 1) then
+        else
+          if (wgt_q > wgt_tgt) then
+            lmetis = .true.
+            np_full = nint(wgt_q/(wgt_fac*wgt_tgt))
+            np_full = max(2,np_full)
+          else
             lmetis = .false.
           end if
+          
+          !call q%get_bb(child_bbx=bbx_q)
+          !call q%get_prop(area=area)
+          !area_q = area*bbx_q%cs**2
+          !if (area_q > area_max) then
+          !   lmetis = .true.
+          !   wgt_tgt = wgt_fac*wgt_tot/max_np
+          !   np_full = nint(wgt_q/wgt_tgt)
+          !   if (np_full == 1) then
+          !     lmetis = .false.
+          !   end if
+          !else
+          !  lmetis = .false.
+          !end if
         end if
         if (lmetis) then
           ldone = .false.
@@ -1344,6 +1420,9 @@ subroutine quad_grid_balancing()
     call logmsg('Number of new METIS parts:        '//ta([np_met]))
     call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
     call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
+    if (iopt == 2) then
+      ldone = .true.
+    end if
     if (ldone) then
       call logmsg('Nothing to be done...')
       exit
@@ -1356,9 +1435,11 @@ subroutine quad_grid_balancing()
       call logmsg('No convergence, maximum iterations reached: '//ta([max_iter]))
       exit
     end if
-    if (np >= max_np) then
-      call logmsg('Maximum number of partitions reached: '//ta([max_np]))
-      exit
+    if (iopt == 1) then
+      if (np >= max_np) then
+        call logmsg('Maximum number of partitions reached: '//ta([max_np]))
+        exit
+      end if
     end if
   end do
   !
@@ -1367,7 +1448,7 @@ subroutine quad_grid_balancing()
     ta([100.*real(np_diff,R4B)/real(np,R4B)],'(f7.2)')//' % increment)')
   !
   ! renumber
-  allocate(gids_new(xq%n)); gids_new = 0
+  allocate(gids_new(gid_max)); gids_new = 0
   n = 0
   !
   do j = 1, size(gid_first)
@@ -1412,6 +1493,30 @@ subroutine quad_grid_balancing()
   end do
   xid = abs(xid)
   !
+  if (iopt == 2) then
+    !max_np = 2000
+    allocate(met)
+    call met%init_lump(ids=xid, nparts=max_np, verbose=.false., weight=weight)
+    call met%set_opts() !(niter_in=1000)
+    call met%recur()
+    
+    allocate(gid2part(gid_max)); gid2part = 0
+    do i = 1, met%nvtxs
+      gid = met%idmapinv(i)
+      gid2part(gid) = met%part(i) + 1
+    end do
+    do ir = 1, nr; do ic = 1, nc
+      gid = xid(ic,ir)
+      if (gid /= xid_mv) then
+        xid(ic,ir) = gid2part(gid)
+      end if
+    end do; end do
+    call grid_load_imbalance(xid, xid_mv, weight, imbal, np, wgt_max=wgt_max)
+    call logmsg('Overall load imbalance for '//ta([np])// &
+      ' parts: '//ta([imbal])//', max weight: '//ta([wgt_max]))
+    call met%clean(); deallocate(met); met => null()
+  end if
+  
   call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
   call hdrg_gid%write(trim(f_gid_out)//'_np'//ta([np]))
   if (lwriteximbal) then
@@ -4245,8 +4350,180 @@ subroutine quad_mf6_write_chd()
   call xq%write_mf6_bnd_heads(kper_beg, kper_end)
 
   return
-
 end subroutine quad_mf6_write_chd
+
+subroutine quad_mf6_write_wtd()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- local
+  type(tVrt), pointer       :: vrt_head => null(), vrt_node => null()
+  type(tHdr), pointer       :: hdr_ahn => null()
+  type(tMultiGrid), pointer :: mg_ahn => null()
+  type(tGrid), pointer      :: g_ahn => null()
+  type(tBB)  :: tile_bbi
+  type(tBB), dimension(:), allocatable :: bbi_arr
+  type(tBBx) :: tile_bbx
+  !
+  logical :: found
+  character(len=MXSLEN) :: f
+  real(R8B), dimension(:), allocatable :: cs_read
+  real(R8B) :: cs_min, cs, xc, yc
+  real(R4B), dimension(:,:), allocatable :: head, ahn, wtd
+  real(R4B) :: mvhead, mvahn, head_val, ahn_val
+  integer(I4B), dimension(:,:), allocatable :: node
+  integer(I4B) :: itile, ntiles, mvnode, node_max, node_min, n, max_nc, max_nr
+  integer(I4B) :: nlev, ilev, bs, jc, jr
+! ------------------------------------------------------------------------------
+  !
+  allocate(vrt_head, vrt_node)
+  call vrt_head%init(f_in_vrt_1)
+  call vrt_node%init(f_in_vrt_2)
+  f_in_flt = strip_ext(f_in_flt)
+  !
+  ntiles = vrt_head%get_ntiles()
+  if (ntiles /= vrt_node%get_ntiles()) then
+    call errmsg('Invalid number of tiles found.')
+  end if
+  !
+  allocate(mg_ahn)
+  !
+  ! read the tiles
+  do itile = 1, ntiles
+    !if (itile /= 66) cycle !DEBUG
+    call logmsg('***** Processing tile '//ta([itile])//'/'//ta([ntiles])//' *****')
+    call vrt_head%read_full_tile(itile=itile, xr4=head, mvr4=mvhead)
+    call vrt_node%read_full_tile(itile=itile, xi4=node, mvi4=mvnode)
+    call vrt_head%get_bb(itile=itile, src_bbi=tile_bbi, src_bbx=tile_bbx)
+    !
+    ! check
+    if ((size(head,1) /= size(node,1)).or.(size(head,2) /= size(node,2))) then
+      call errmsg('Non matching tile sizes.')
+    else
+      nc = size(head,1); nr = size(head,2)
+    end if
+    !
+    ! determine minimum/maximum node
+    found = .false.
+    node_min = huge(node_min); node_max = -huge(node_max)
+    do ir = 1, nr; do ic = 1, nc
+      if (node(ic,ir) /= mvnode) then
+        found = .true.
+        node_min = min(node_min,node(ic,ir))
+        node_max = max(node_max,node(ic,ir))
+      end if
+    end do; end do
+    !
+    ! intitialize the wtd
+    if (allocated(wtd)) deallocate(wtd)
+    allocate(wtd(tile_bbi%ncol, tile_bbi%nrow))
+    wtd = mvhead
+    !
+    if (.not.found) then
+      call logmsg('***** No nodes found for tile '//ta([itile])//'! *****')
+    else
+      !
+      n = node_max - node_min + 1
+      if (allocated(bbi_arr)) deallocate(bbi_arr)
+      allocate(bbi_arr(n))
+      do i = 1, n
+        call bbi_arr(i)%init()
+      end do
+      max_nc = 0; max_nr = 0
+      do ir = 1, nr; do ic = 1, nc
+         if (node(ic,ir) /= mvnode) then
+           i = node(ic,ir) - node_min + 1
+           bbi_arr(i)%ir0 = min(bbi_arr(i)%ir0,ir)
+           bbi_arr(i)%ir1 = max(bbi_arr(i)%ir1,ir)
+           bbi_arr(i)%ic0 = min(bbi_arr(i)%ic0,ic)
+           bbi_arr(i)%ic1 = max(bbi_arr(i)%ic1,ic)
+           bbi_arr(i)%ncol = bbi_arr(i)%ic1 - bbi_arr(i)%ic0 + 1
+           bbi_arr(i)%nrow = bbi_arr(i)%ir1 - bbi_arr(i)%ir0 + 1
+           max_nc = max(max_nc, bbi_arr(i)%ncol)
+           max_nr = max(max_nr, bbi_arr(i)%nrow)
+         end if
+      end do; end do
+      if (max_nc /= max_nr) then
+        call errmsg('Invalid block size.')
+      end if
+      !
+      cs_min = tile_bbx%cs
+      !
+      nlev = int(log(real(max_nc,R8B))/log(2.d0)) + 1
+      if (allocated(cs_read)) deallocate(cs_read)
+      allocate(cs_read(nlev))
+      !
+      do ilev = 1, nlev
+        cs_read(ilev) = cs_min * 2**(ilev-1)
+      end do
+      !
+      call mg_ahn%clean()
+      !
+      do ilev = 1, nlev
+        tile_bbx%cs = cs_read(ilev)
+        !
+        allocate(hdr_ahn)
+        call hdr_ahn%read_extent(f_in_flt, tile_bbx, i_uscl_arith, i_dscl_nointp)
+        call hdr_ahn%get_grid(xr4=ahn, mvr4=mvahn)
+        call hdr_ahn%clean(); deallocate(hdr_ahn); hdr_ahn => null()
+        !
+        if (.false.) then
+          f = 'e:\data\lhm-flex\snellius\200m_var_01_merge\ahn_l'//ta([ilev])
+          call writeflt(f, ahn, size(ahn,1), size(ahn,2), &
+            tile_bbx%xll, tile_bbx%yll, tile_bbx%cs, mvahn)
+        end if
+        !
+        if (ilev == 1) then
+          call mg_ahn%init(nlev, tile_bbx%xll, tile_bbx%xur, &
+            tile_bbx%yll, tile_bbx%yur, cs_read, mvr4=mvahn)
+        end if
+        g_ahn => mg_ahn%grid(ilev); call g_ahn%clean_xi()
+        call g_ahn%set_arr(xr4=ahn)
+      end do
+      !
+      ! set the water table depth
+      do ir = 1, nr; do ic = 1, nc
+        n = node(ic,ir)
+        if (n /= mvnode) then
+          i = n - node_min + 1
+          bs = bbi_arr(i)%ncol
+          ilev = int(log(real(bs,R8B))/log(2.d0)) + 1
+          g_ahn => mg_ahn%grid(ilev)
+          call  get_xy(xc, yc, ic, ir, tile_bbx%xll, tile_bbx%yur, cs_min)
+          call get_icr(jc, jr, xc, yc, tile_bbx%xll, tile_bbx%yur, cs_read(ilev))
+          if (valid_icir(jc, jr, g_ahn%nc, g_ahn%nr)) then
+            head_val = head(ic,ir)
+            ahn_val  = g_ahn%xr4(jc,jr)
+            if ((head_val /= mvhead).and.(ahn_val /= mvahn)) then
+              wtd(ic,ir) = ahn_val - head_val
+            end if
+          end if
+        end if
+      end do; end do
+    end if
+    !
+    ! overwrite the head vrt, and write the wtd flt
+    f = vrt_head%raw%raw_mid(itile)%raw(i_SourceFilename)%s(4)
+    f = trim(strip_ext(f))//trim(post_fix)//'.flt'
+    vrt_head%raw%raw_mid(itile)%raw(i_SourceFilename)%s(4) = f
+    call writeflt(strip_ext(f), wtd, tile_bbi%ncol, tile_bbi%nrow, &
+      tile_bbx%xll, tile_bbx%yll, cs_min, mvhead)
+  end do
+  !
+  ! write the vrt
+  vrt_head%f = f_out_vrt
+  call vrt_head%write()
+  !
+  ! clean-up
+  call vrt_head%clean(); deallocate(vrt_head); vrt_head => null()
+  call vrt_node%clean(); deallocate(vrt_node); vrt_node => null()
+  if (allocated(head)) deallocate(head)
+  if (allocated(node)) deallocate(node)
+  if (allocated(wtd)) deallocate(wtd)
+  !
+  return
+end subroutine
 
 end module main_module
 
@@ -4382,6 +4659,11 @@ program quad2d
         call quad_mf6_write_heads(lmerge=.false.)
       end if
     end if
+  end if
+  !
+  ! mf6_post_wtd
+  if (run_opt == 20) then
+    call quad_mf6_write_wtd()
   end if
   !
   ! clean up
