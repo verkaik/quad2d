@@ -2,7 +2,10 @@ module utilsmod
   use, intrinsic :: iso_fortran_env , only: error_unit, output_unit, &
     I1B => int8, I2B => int16, I4B => int32, I8B => int64, &
     R4B => real32, R8B => real64
-
+  
+#ifdef CHECK_NAN 
+  use ieee_arithmetic, only: ieee_is_nan
+#endif
   implicit none
 
   integer(I4B), parameter :: MXSLENSHORT = 64
@@ -182,6 +185,17 @@ module utilsmod
     procedure :: clean_and_init_row => tCSV_clean_and_init_row
   end type tCSV
   !
+  interface check_nan
+    module procedure :: check_nan_i1
+    module procedure :: check_nan_i2
+    module procedure :: check_nan_i4
+    module procedure :: check_nan_i8
+    module procedure :: check_nan_r4
+    module procedure :: check_nan_r8
+  end interface check_nan
+  private :: check_nan_i1, check_nan_i2, check_nan_i4, check_nan_i8
+  private :: check_nan_r4, check_nan_r8
+  
   interface get_unique
     module procedure :: get_unique_i4
   end interface get_unique
@@ -484,7 +498,73 @@ module utilsmod
 
   contains
 
-  subroutine grid_load_imbalance(xi4, mvi4, wi4, imbal, nparts, ximbal)
+  function check_nan_i1(x) result(is_nan)
+    integer(I1B), intent(in) :: x
+    logical :: is_nan
+#ifdef CHECK_NAN 
+    is_nan = ieee_is_nan(real(x,R8B))
+#else
+    is_nan = .false !call errmsg('check_nan_i1')
+#endif
+    return
+  end function check_nan_i1
+  
+  function check_nan_i2(x) result(is_nan)
+    integer(I2B), intent(in) :: x
+    logical :: is_nan
+#ifdef CHECK_NAN 
+    is_nan = ieee_is_nan(real(x,R8B))
+#else
+    is_nan = .false !call errmsg('check_nan_i2')
+#endif
+    return
+  end function check_nan_i2
+
+  function check_nan_i4(x) result(is_nan)
+    integer(I4B), intent(in) :: x
+    logical :: is_nan
+#ifdef CHECK_NAN 
+    is_nan = ieee_is_nan(real(x,R8B))
+#else
+    is_nan = .false !call errmsg('check_nan_i4')
+#endif
+    return
+  end function check_nan_i4
+  
+  function check_nan_i8(x) result(is_nan)
+    integer(I8B), intent(in) :: x
+    logical :: is_nan
+#ifdef CHECK_NAN 
+    is_nan = ieee_is_nan(real(x,R8B))
+#else
+    is_nan = .false !call errmsg('check_nan_i8')
+#endif
+    return
+  end function check_nan_i8
+  
+  function check_nan_r4(x) result(is_nan)
+    real(R4B), intent(in) :: x
+    logical :: is_nan
+#ifdef CHECK_NAN 
+    is_nan = ieee_is_nan(x)
+#else
+    is_nan = .false !call errmsg('check_nan_r4')
+#endif
+    return
+  end function check_nan_r4
+
+  function check_nan_r8(x) result(is_nan)
+    real(R8B), intent(in) :: x
+    logical :: is_nan
+#ifdef CHECK_NAN 
+    is_nan = ieee_is_nan(x)
+#else
+    is_nan = .false !call errmsg('check_nan_r8')
+#endif
+    return
+  end function check_nan_r8
+  
+  subroutine grid_load_imbalance(xi4, mvi4, wi4, imbal, nparts, ximbal, wgt_max)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -496,6 +576,7 @@ module utilsmod
     real(R8B),                    intent(out) :: imbal
     integer(I4B),                 intent(out) :: nparts
     real(R4B), dimension(:,:),    allocatable, intent(inout), optional :: ximbal
+    real(R8B), intent(out), optional :: wgt_max
     ! -- local
     integer(I4B) :: nc, nr, ic, ir, minid, maxid, id, ip, ngid, n, i
     integer(I4B), dimension(:), allocatable :: ids
@@ -567,6 +648,11 @@ module utilsmod
         end if
       end do; end do
     end if
+    !
+    if (present(wgt_max)) then
+      wgt_max = maxval(load)
+    end if
+    !
     ! clean up
     deallocate(ids, wi4_loc, load, loadimbal)
     !
@@ -4195,6 +4281,13 @@ module utilsmod
         if (flg_in(4)==1) r4v = real(xi8_in(ic,ir),R4B)
         if (flg_in(5)==1) r4v = real(xr4_in(ic,ir),R4B)
         if (flg_in(6)==1) r4v = real(xr8_in(ic,ir),R4B)
+        !
+        if (flg_in(1)==1) lmv = (xi1_in(ic,ir) == mvi1_in)
+        if (flg_in(2)==1) lmv = (xi2_in(ic,ir) == mvi2_in)
+        if (flg_in(3)==1) lmv = (xi4_in(ic,ir) == mvi4_in)
+        if (flg_in(4)==1) lmv = (xi8_in(ic,ir) == mvi8_in)
+        if (flg_in(5)==1) lmv = (xr4_in(ic,ir) == mvr4_in)
+        if (flg_in(6)==1) lmv = (xr8_in(ic,ir) == mvr8_in)
         !
         if (lmv) r4v = mvr4_out; xr4_out(ic,ir) = r4v
         !if (rep_mv.and.(r4v == mvr4_in)) r4v = mvr4; xr4_out(ic,ir) = r4v
