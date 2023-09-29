@@ -326,7 +326,7 @@ module utilsmod
     module procedure :: ta_r8
     module procedure :: ta_c
   end interface
-  private :: ta_i1, ta_i2, ta_i4, ta_i8, ta_r4, ta_r8
+  private :: ta_i1, ta_i2, ta_i4, ta_i8, ta_r4, ta_r8, ta_c
 
   type tPol
     integer(I4B) :: id = 0
@@ -504,7 +504,7 @@ module utilsmod
 #ifdef CHECK_NAN 
     is_nan = ieee_is_nan(real(x,R8B))
 #else
-    is_nan = .false !call errmsg('check_nan_i1')
+    is_nan = .false. !call errmsg('check_nan_i1')
 #endif
     return
   end function check_nan_i1
@@ -515,7 +515,7 @@ module utilsmod
 #ifdef CHECK_NAN 
     is_nan = ieee_is_nan(real(x,R8B))
 #else
-    is_nan = .false !call errmsg('check_nan_i2')
+    is_nan = .false. !call errmsg('check_nan_i2')
 #endif
     return
   end function check_nan_i2
@@ -526,7 +526,7 @@ module utilsmod
 #ifdef CHECK_NAN 
     is_nan = ieee_is_nan(real(x,R8B))
 #else
-    is_nan = .false !call errmsg('check_nan_i4')
+    is_nan = .false. !call errmsg('check_nan_i4')
 #endif
     return
   end function check_nan_i4
@@ -537,7 +537,7 @@ module utilsmod
 #ifdef CHECK_NAN 
     is_nan = ieee_is_nan(real(x,R8B))
 #else
-    is_nan = .false !call errmsg('check_nan_i8')
+    is_nan = .false. !call errmsg('check_nan_i8')
 #endif
     return
   end function check_nan_i8
@@ -548,7 +548,7 @@ module utilsmod
 #ifdef CHECK_NAN 
     is_nan = ieee_is_nan(x)
 #else
-    is_nan = .false !call errmsg('check_nan_r4')
+    is_nan = .false. !call errmsg('check_nan_r4')
 #endif
     return
   end function check_nan_r4
@@ -559,7 +559,7 @@ module utilsmod
 #ifdef CHECK_NAN 
     is_nan = ieee_is_nan(x)
 #else
-    is_nan = .false !call errmsg('check_nan_r8')
+    is_nan = .false. !call errmsg('check_nan_r8')
 #endif
     return
   end function check_nan_r8
@@ -588,7 +588,7 @@ module utilsmod
     !
     minid = huge(minid); maxid = -huge(maxid)
     do ir = 1, nr; do ic = 1, nc
-      id = xi4(ic,ir)
+      id = abs(xi4(ic,ir))
       if (id /= mvi4) then
         minid = min(minid,id); maxid = max(maxid,id)
       end if
@@ -598,7 +598,7 @@ module utilsmod
     !
     allocate(ids(maxid)); ids = 0
     do ir = 1, nr; do ic = 1, nc
-      id = xi4(ic,ir)
+      id = abs(xi4(ic,ir))
       if (id /= mvi4) then
         ids(id - minid + 1) = 1
       end if
@@ -623,7 +623,7 @@ module utilsmod
     end if
     !
     do ir = 1, nr; do ic = 1, nc
-      id = xi4(ic,ir)
+      id = abs(xi4(ic,ir))
       if (id /= mvi4) then
         i = ids(id - minid + 1)
         load(i) = load(i) + real(wi4_loc(ic,ir),R8B)
@@ -641,7 +641,7 @@ module utilsmod
       if (allocated(ximbal)) deallocate(ximbal)
       allocate(ximbal(nc,nr)); ximbal = R4ZERO
       do ir = 1, nr; do ic = 1, nc
-        id = xi4(ic,ir)
+        id = abs(xi4(ic,ir))
         if (id /= mvi4) then
           i = ids(id - minid + 1)
           ximbal(ic,ir) = real(loadimbal(i),R4B)
@@ -5287,6 +5287,93 @@ module utilsmod
     return
   end subroutine get_bb_extent_r8
   
+  subroutine get_neighbors(xi4, mvi4, id_tgt, id_nbr)
+! ******************************************************************************
+    ! -- arguments
+    integer(I4B), dimension(:,:), intent(in) :: xi4
+    integer(I4B), intent(in) :: mvi4
+    integer(I4B), intent(in) :: id_tgt
+    integer(I4B), dimension(:), allocatable, intent(inout) :: id_nbr
+  
+    ! -- locals
+    integer(I4B), parameter :: jp = 1
+    integer(I4B), parameter :: jn = 2
+    integer(I4B), parameter :: js = 3
+    integer(I4B), parameter :: je = 4
+    integer(I4B), parameter :: jw = 5
+    integer(I4B), parameter :: ns = jw
+    !
+    integer(I4B), dimension(2,ns) :: st
+    data st/ 0,  0, &
+             0, -1, &
+             0,  1, &
+             1,  0, &
+            -1,  0/
+    !
+    type(tBB) :: bb
+    logical :: found
+    integer(I4B), dimension(:), allocatable :: i4wrk
+    integer(I4B) :: nc, nr, ic, ir, jc, jr, i, j, n, id, min_id, max_id, n_max
+! ------------------------------------------------------------------------------
+    if (allocated(id_nbr)) deallocate(id_nbr)
+    nc = size(xi4,1); nr = size(xi4,2)
+    !
+    call bb%init(); found = .false.
+    min_id = huge(min_id); max_id = -huge(max_id)
+    do ir = 1, nr; do ic = 1, nc
+      id = xi4(ic,ir)
+      if (id /= mvi4) then
+        min_id = min(min_id,id); max_id = max(max_id,id)
+        if (id == id_tgt) then
+          found = .true.
+          bb%ir0 = min(bb%ir0,ir); bb%ir1 = max(bb%ir1,ir)
+          bb%ic0 = min(bb%ic0,ic); bb%ic1 = max(bb%ic1,ic)
+        end if
+      end if
+    end do; end do
+    if(.not.found) then
+      call errmsg('get_neighbors: id not found.')
+    end if
+    !
+    n_max = max_id - min_id + 1
+    allocate(i4wrk(n_max)); i4wrk = 0
+    !
+    do ir = bb%ir0-1, bb%ir1+1
+      do ic = bb%ic0-1, bb%ic1+1
+        if (xi4(ic,ir) == id_tgt) then
+           do j = 2, ns
+            jc = ic+st(1,j); jc = max(jc,1); jc = min(jc,nc)
+            jr = ir+st(2,j); jr = max(jr,1); jr = min(jr,nr)
+            id = xi4(jc,jr)
+            if (id /= mvi4) then
+              if (id /= id_tgt) then
+                i4wrk(id - min_id + 1) = 1
+              end if
+            end if
+           end do
+        end if
+      end do
+    end do
+    !
+    n = sum(i4wrk)
+    if (n == 0) then
+      call logmsg('No neighbors found; returning.')
+      return
+    else
+      allocate(id_nbr(n))
+      n = 0
+      do i = 1, n_max
+        if (i4wrk(i) == 1) then
+          id = i + min_id - 1
+          n = n + 1
+          id_nbr(n) = id
+        end if
+      end do
+    end if
+    !
+    return
+  end subroutine get_neighbors
+    
   subroutine grid_to_graph(a, mv, ia, ja, id, bb, label_bnd_id)
 ! ******************************************************************************
     ! -- arguments
