@@ -241,8 +241,8 @@ contains
       end do
     end do
     this%nvtxs = sum(this%idmap)
-    write(s,*) this%nvtxs
     if (.not.present(verbose)) then
+      write(s,*) this%nvtxs
       write(*,*) 'Number of lumped nodes: '//trim(adjustl(s))
     end if
     !
@@ -324,23 +324,31 @@ contains
             ivalw = abs(ids(icw,ir)); ivale = abs(ids(ice,ir))
             if (ivaln /= 0) then
               j = this%idmap(ivaln)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(ic,irn) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(ic,irn) = 1
+              end if
             end if
             if (ivals /= 0) then
               j = this%idmap(ivals)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(ic,irs) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(ic,irs) = 1
+              end if
             end if
             if (ivalw /= 0) then
               j = this%idmap(ivalw)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(icw,ir) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(icw,ir) = 1
+              end if
             end if
             if (ivale /= 0) then
               j = this%idmap(ivale)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(ice,ir) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(ice,ir) = 1
+              end if
             end if
           end if
         end do
@@ -386,23 +394,31 @@ contains
             ivalw = abs(ids(icw,ir)); ivale = abs(ids(ice,ir))
             if (ivaln /= 0) then
               j = this%idmap(ivaln)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(ic,irn) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(ic,irn) = 1
+              end if
             end if
             if (ivals /= 0) then
               j = this%idmap(ivals)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(ic,irs) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(ic,irs) = 1
+              end if
             end if
             if (ivalw /= 0) then
               j = this%idmap(ivalw)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(icw,ir) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(icw,ir) = 1
+              end if
             end if
             if (ivale /= 0) then
               j = this%idmap(ivale)
-              iwrk(j) = iwrk(j) + 1
-              iwrk2(ice,ir) = 1
+              if (i /= j) then
+                iwrk(j) = iwrk(j) + 1
+                iwrk2(ice,ir) = 1
+              end if
             end if
           end if
         end do
@@ -418,6 +434,16 @@ contains
         end if
       end do
     end do
+    !
+    if (.false.) then
+      write(*,*) 'WARNING: different edge weights applied.'
+      n = maxval(this%adjwgt)
+      do i = 1, nja
+        j = max(n/this%adjwgt(i),1)
+        this%adjwgt(i) = 1
+        !this%adjwgt(i)   = j
+      end do
+    end if
 
     deallocate(iwrk, iwrk2, idbb)
     
