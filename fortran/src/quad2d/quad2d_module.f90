@@ -9285,7 +9285,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
   end subroutine tQuad_clean
 
   subroutine tQuad_set(this, lid_prent, gid_prent, itile, tile_bbi, i_graph, &
-    i_prop, hlev)
+    i_prop, hlev, weight, child_bbi)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -9299,6 +9299,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(in), optional :: i_graph
     integer(I4B), intent(in), optional :: i_prop
     integer(I4B), dimension(:), intent(in), optional :: hlev
+    real(R8B), intent(in), optional :: weight
+    type(tBb), intent(in), optional :: child_bbi
     ! -- local
 ! ------------------------------------------------------------------------------
     !
@@ -9325,6 +9327,12 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (present(hlev)) then
       if (allocated(this%hlev)) deallocate(this%hlev)
       allocate(this%hlev,source=hlev)
+    end if
+    if (present(weight)) then
+      this%weight = weight
+    end if
+    if (present(child_bbi)) then
+      this%bbo%child_bbi = child_bbi
     end if
     !
     return
