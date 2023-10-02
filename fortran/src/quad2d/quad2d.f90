@@ -5,7 +5,7 @@ module main_module
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
-    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid
+    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors
   use vrt_module, only: tVrt, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -22,6 +22,7 @@ module main_module
   use multigrid_module, only: tMultiGrid, tMultiGridArray
   use mf6_wbd_mod, only: tMf6Wbd, MAX_NR_CSV
   use metis_module, only: tMetis
+  use chaco_module, only: tChaco
   
   implicit none
   !
@@ -61,13 +62,16 @@ module main_module
   character(len=MXSLEN) :: f_in_idf
   character(len=MXSLEN) :: d_log
   character(len=MXSLEN) :: f_in_flt, f_in_vrt_1, f_in_vrt_2, f_out_vrt, post_fix
+  character(len=MXSLEN) :: f_exe
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
   !
-  logical :: lrenumber, lwrite, ljoin, lsplit, lremove, lwrite_props, loverwrite_props, lwrite_asc, luse_uuid, lwrite_disu
+  logical :: lrenumber, lwrite, ljoin, lsplit, lremove, lwrite_props
+  logical :: loverwrite_props, lwrite_asc, luse_uuid, lwrite_disu
   logical, parameter :: LDUM = .true.
   logical :: write_nod_map, write_chd, write_hiera
+  logical :: luse_chaco, lwrite_ximbal
   
   integer(I4B) :: mask_mv, xid_mv
   integer(I4B), dimension(:,:), allocatable :: mask
@@ -80,6 +84,7 @@ module main_module
   integer(I4B) :: npart, max_iter, max_np, n_csv_val
   integer(I4B), dimension(:), allocatable :: gids, l2gid, g2lid
   integer(I4B), dimension(:,:), allocatable :: xid, i4w2d, regun
+  integer(I4B) :: np_beg, np_step, np_end
   !
   real(R4B), dimension(:,:), allocatable :: r4w2d
   !
@@ -88,6 +93,7 @@ module main_module
   real(R8B) :: x0, x1, y0, y1
   real(R8B) :: refr8, xll, yll, yur, cs_gid, cs_max
   real(R8B) :: weight_fac
+  real(R8B) :: wgt_fac, wgt_per
   !
   integer(I4B) :: kper_beg, kper_end, tile_nc, tile_nr
   character(len=MXSLEN) :: head_layers
@@ -361,16 +367,43 @@ subroutine quad_settings()
     !=========!
     run_opt = 11
     !=========!
-    call ini%get_val(sect, 'f_gid_in',      cv=f_gid_in)
-    call ini%get_val(sect, 'f_weight',      cv=f_weight, cv_def='')
-    call ini%get_val(sect, 'f_hiera_in',    cv=f_hiera_in, cv_def='')
-    call ini%get_val(sect, 'npart',        i4v=npart)
-    call ini%get_val(sect, 'f_gid_out',     cv=f_gid_out)
-    call ini%get_val(sect, 'f_hiera_field', cv=f_hiera_field, cv_def='')
-    call ini%get_val(sect, 'f_out_csv',     cv=f_out_csv)
-    call ini%get_val(sect, 'write_hiera',   l4v=write_hiera, l4v_def=.false.)
-    call ini%get_val(sect, 'gid_separate',  cv=gid_separate, cv_def='')
-    call ini%get_val(sect, 'weight_fac',    r8v=weight_fac, r8v_def=R8ONE)
+    call ini%get_val(sect, 'f_gid_in',      cv =f_gid_in)
+    call ini%get_val(sect, 'f_weight',      cv =f_weight,       cv_def='')
+    call ini%get_val(sect, 'f_gid_out',     cv =f_gid_out)
+    call ini%get_val(sect, 'gid_separate',  cv =gid_separate,  cv_def='')
+    call ini%get_val(sect, 'max_np',        i4v =max_np)
+    call ini%get_val(sect, 'chaco_exe',     cv  =f_exe, cv_def='')
+    call ini%get_val(sect, 'write_ximbal',  l4v=lwrite_ximbal, l4v_def=.false.)
+    call ini%get_val(sect, 'use_chaco',     l4v=luse_chaco, l4v_def=.false.)
+    call ini%get_val(sect, 'wgt_fac',       r8v=wgt_fac, r8v_def=0.7d0)
+    call ini%get_val(sect, 'wgt_per',       r8v=wgt_per, r8v_def=0.05d0)
+   
+  case('check_sub_grid_part')
+    !=========!
+    run_opt = 21
+    !=========!
+    call ini%get_val(sect, 'f_gid_in',      cv =f_gid_in)
+    call ini%get_val(sect, 'f_weight',      cv =f_weight,       cv_def='')
+    call ini%get_val(sect, 'np_beg',        i4v =np_beg)
+    call ini%get_val(sect, 'np_step',       i4v =np_step, i4v_def=1)
+    call ini%get_val(sect, 'np_end',        i4v =np_end)
+    call ini%get_val(sect, 'chaco_exe',     cv  =f_exe, cv_def='')
+    call ini%get_val(sect, 'use_chaco',     l4v=luse_chaco, l4v_def=.false.)
+    
+  !case('sub_grid_part')
+  !  !=========!
+  !  run_opt = 11
+  !  !=========!
+  !  call ini%get_val(sect, 'f_gid_in',      cv=f_gid_in)
+  !  call ini%get_val(sect, 'f_weight',      cv=f_weight, cv_def='')
+  !  call ini%get_val(sect, 'f_hiera_in',    cv=f_hiera_in, cv_def='')
+  !  call ini%get_val(sect, 'npart',        i4v=npart)
+  !  call ini%get_val(sect, 'f_gid_out',     cv=f_gid_out)
+  !  call ini%get_val(sect, 'f_hiera_field', cv=f_hiera_field, cv_def='')
+  !  call ini%get_val(sect, 'f_out_csv',     cv=f_out_csv)
+  !  call ini%get_val(sect, 'write_hiera',   l4v=write_hiera, l4v_def=.false.)
+  !  call ini%get_val(sect, 'gid_separate',  cv=gid_separate, cv_def='')
+  !  call ini%get_val(sect, 'weight_fac',    r8v=weight_fac, r8v_def=R8ONE)
   case('full_grid_part')
     !=========!
     run_opt = 12
@@ -392,6 +425,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'gid_first_num', cv =gid_first_num,  cv_def='')
     call ini%get_val(sect, 'max_iter',      i4v =max_iter,     i4v_def=100)
     call ini%get_val(sect, 'max_np',        i4v =max_np,       i4v_def=10000)
+    call ini%get_val(sect, 'chaco_exe',     cv  =f_exe, cv_def='')
   case('idf_to_flt')
     !=========!
     run_opt = 15
@@ -1114,40 +1148,43 @@ subroutine quad_grid_balancing()
   !
   logical, parameter :: lwriteximbal = .true.
   !
-  type(tQuad), pointer :: q_new => null()
-  type(tBb)  :: bbi_gid, bb_new
+  type(tQuad), pointer :: q_new => null(), q_nbr => null()
+  type(tBb), pointer :: bbip => null()
+  type(tBb)  :: bbi_gid, bbi_new, bb_nbr
   type(tBbX) :: bbx_gid, bbx_hid, bbx_q
   type(tHdr), pointer :: hdrg_hid => null()
   type(tHdrHdr), pointer :: hdr => null()
   type(tCSV), pointer    :: csv => null()
   type(tMetis), pointer :: met => null()
+  type(tChaco), pointer :: chac => null()
+  type(tBb), dimension(:), pointer :: bbi_arr
   !
-  real(R8B), parameter :: wgt_fac = 0.7d0
-  real(R8B), parameter :: wgt_per = 0.05d0
-  
   logical :: lgidfirst, ldone, lmetis
   character(len=MXSLEN) :: f
-  integer(I4B) :: weight_mv, gid_max_loc, iter, j, iopt
-  integer(I4B) :: lid_new, gid_new, iact, nact, nmet, np_met
-  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p, area
-  integer(I4B), dimension(:,:), allocatable :: mask, part
-  integer(I4B), dimension(:,:), allocatable :: weight, qweight, ini_weight
+  integer(I4B) :: weight_mv, gid_max_loc, iter, j, iopt, ipart, n_disjoint
+  integer(I4B) :: lid_new, gid_new, iact, nact, nmet, np_met, lid_smallest, lid_nbr
+  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p, n_wgt
+  integer(I4B), dimension(:,:), allocatable :: mask, part, xid_split
+  integer(I4B), dimension(:,:), allocatable :: weight, qweight
   integer(I4B), dimension(:), allocatable :: gid_first, wgt_sort_lid
-  integer(I4B), dimension(:), allocatable :: gids_new, gid2part
+  integer(I4B), dimension(:), allocatable :: gids_new, gid2part, xid_nbr
   real(R4B), dimension(:), allocatable :: wgt_sort
   real(R4B), dimension(:,:), allocatable :: ximbal
-  real(R8B) :: wgt_avg, wgt_tgt, wgt_max, wgt_tot, wgt_q, imbal, area_q, area_max
+  real(R8B) :: wgt_avg, wgt_tgt, wgt_max, wgt_tot, wgt_q, wgt_qnbr, imbal
+  real(R8B) :: wgt_min, wgt_new
 ! ------------------------------------------------------------------------------
-  
-  area_max = 12.5d0 !km2
-  area_max = area_max * 1000.d0 * 1000.d0 ! m2
-  !
-  iopt = 2
   !
   allocate(hdrg_gid)
   call hdrg_gid%read_full_grid(f_gid_in)
   call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
   nc =  size(xid,1); nr = size(xid,2)
+  if (.false.) then
+    do ir = 1, nr; do ic = 1, nc
+      if (xid(ic,ir) /= xid_mv) then
+        if (xid(ic,ir) == 6) xid(ic,ir) = xid_mv
+       end if
+    end do; end do
+  end if
   !
   ! read the weights
   if (len_trim(f_weight) > 0) then
@@ -1230,33 +1267,12 @@ subroutine quad_grid_balancing()
     end if
   end do
   !
-  if (.true.) then
-    allocate(ini_weight(nc,nr)); ini_weight = 0
-    do lid = 1, xq%n
-      q => xq%get_quad(lid)
-      if (q%get_flag(active=LDUM)) then
-        call q%get_bb(child_bbi=bb)
-        call get_mask(xid, q%gid, bb, mask)
-        call q%get_prop(weight=wgt_q)
-        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-          if (mask(jc,jr) == 1) then
-            ini_weight(ic,ir) = wgt_q
-          end if
-        end do; end do
-      end if
-    end do
-    f = trim(f_gid_out)//'_ini_weight'
-    call writeflt(f, ini_weight, nc, nr, xll, yll, cs_gid, I4ZERO)
-    deallocate(ini_weight)
-  end if
-  
   np_tgt = xq%get_number_active(); np_strt = np_tgt
-  call logmsg('Starting with '//ta([np_strt])//' parts...')
-  call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
-  call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
+  call grid_load_imbalance(xid, xid_mv, weight, imbal, np_strt)
+  call logmsg('Start with load imbalance for '//ta([np_strt])//' parts: '//ta([imbal]))
   !
   gid_new = gid_max_loc; iter = 0
+  allocate(xid_split(nc,nr)); xid_split = 0
   do while(.true.)
     iter = iter + 1
     !
@@ -1271,21 +1287,9 @@ subroutine quad_grid_balancing()
         wgt_sort(lid) = R4ZERO
       end if
     end do
-    if (iopt == 2) then
-      wgt_sort = -wgt_sort
-      call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
-      wgt_sort = -wgt_sort
-      i = nint(wgt_per *real(xq%n))
-      wgt_tgt = wgt_sort(i)
-      call logmsg('Target weight: '//ta([wgt_tgt]))
-      !max_np = wgt_tot/wgt_tgt
-      !call logmsg('Target number of parts: '//ta([max_np])// &
-      !  ', max weight: '//ta([wgt_tgt]))
-    else
-      !wgt_sort = -wgt_sort
-      call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
-      !wgt_sort = -wgt_sort
-    end if
+    !wgt_sort = -wgt_sort
+    call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
+    !wgt_sort = -wgt_sort
     ldone = .true.
     n = xq%n; lid_new = n; nmet = 0; np_met = 0
     do i = 1, n
@@ -1298,44 +1302,20 @@ subroutine quad_grid_balancing()
           call errmsg('Quad_grid_balancing: program error.')
         end if
         !
-        if (iopt == 1) then
-          wgt_avg = wgt_tot/np_tgt
-          wgt_tgt = tgt_imbal * wgt_avg
-          !call logmsg('New average: '//ta([wgt_avg]))
-          lmetis = .false.
-          if (wgt_q > wgt_tgt) then
-            np_full = nint(wgt_q/wgt_tgt)
-            np_full = max(2,np_full)
-            if (np_full > 1) then
-              lmetis = .true.
-            end if
-            np_full = min(np_full, max_np - np_tgt + 1)
-            if (np_full <= 1) then
-              lmetis = .false.
-            end if
-          end if
-        else
-          if (wgt_q > wgt_tgt) then
+        wgt_avg = wgt_tot/np_tgt
+        wgt_tgt = tgt_imbal * wgt_avg
+        !call logmsg('New average: '//ta([wgt_avg]))
+        lmetis = .false.
+        if (wgt_q > wgt_tgt) then
+          np_full = nint(wgt_q/wgt_tgt)
+          np_full = max(2,np_full)
+          if (np_full > 1) then
             lmetis = .true.
-            np_full = nint(wgt_q/(wgt_fac*wgt_tgt))
-            np_full = max(2,np_full)
-          else
+          end if
+          np_full = min(np_full, max_np - np_tgt + 1)
+          if (np_full <= 1) then
             lmetis = .false.
           end if
-          
-          !call q%get_bb(child_bbx=bbx_q)
-          !call q%get_prop(area=area)
-          !area_q = area*bbx_q%cs**2
-          !if (area_q > area_max) then
-          !   lmetis = .true.
-          !   wgt_tgt = wgt_fac*wgt_tot/max_np
-          !   np_full = nint(wgt_q/wgt_tgt)
-          !   if (np_full == 1) then
-          !     lmetis = .false.
-          !   end if
-          !else
-          !  lmetis = .false.
-          !end if
         end if
         if (lmetis) then
           ldone = .false.
@@ -1351,6 +1331,7 @@ subroutine quad_grid_balancing()
           do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
             jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
             if (mask(jc,jr) > 0) then
+              xid_split(ic,ir) = np_full
               qweight(jc,jr) = weight(ic,ir)
             end if
           end do; end do;
@@ -1368,15 +1349,15 @@ subroutine quad_grid_balancing()
           do ip = 1, np_full
             lid_new = lid_new + 1; gid_new = gid_new + 1
             q_new => xq%get_quad(lid_new)
-            call bb_new%init()
+            call bbi_new%init()
             do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
               jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
               p = part(jc,jr)
               if (p == ip) then
                ! determine the new bounding box
-                bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
-                bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
-                bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
+                bbi_new%ic0 = min(bbi_new%ic0,ic); bbi_new%ic1 = max(bbi_new%ic1,ic)
+                bbi_new%ir0 = min(bbi_new%ir0,ir); bbi_new%ir1 = max(bbi_new%ir1,ir)
+                bbi_new%ncol = bbi_new%ic1 - bbi_new%ic0 + 1;  bbi_new%nrow = bbi_new%ir1 - bbi_new%ir0 + 1
                 if (xid(ic,ir) /= q%gid) then
                   call errmsg('quad_sub_grid_part: program error.')
                 else
@@ -1385,26 +1366,27 @@ subroutine quad_grid_balancing()
               end if 
             end do; end do
             !
-            bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
-            bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
+            bbx%xll = xll + (bbi_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bbi_new%ir1)*cs_gid
+            bbx%xur = bbx%xll + bbi_new%ncol*cs_gid; bbx%yur = bbx%yll + bbi_new%nrow*cs_gid
             bbx%cs = cs_gid
-            call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+            call bbo%set(child_bbi=bbi_new, child_bbx=bbx)
             call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
             if (q%gid_prent > 0) then
               call q_new%set(hlev=q%hlev, gid_prent=q%gid_prent, lid_prent=q%lid_prent)
             else
               call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
             end if
-            call get_mask(xid, gid_new, bb_new, mask)
+            call get_mask(xid, gid_new, bbi_new, mask)
             if (allocated(qweight)) deallocate(qweight)
-            allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
-            do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
-              jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
+            allocate(qweight(bbi_new%ncol,bbi_new%nrow)); qweight = I4ZERO
+            do ir = bbi_new%ir0, bbi_new%ir1; do ic = bbi_new%ic0, bbi_new%ic1
+              jr = ir - bbi_new%ir0 + 1; jc = ic - bbi_new%ic0 + 1
               if (mask(jc,jr) > 0) then
                 qweight(jc,jr) = weight(ic,ir)
               end if
             end do; end do;
             call q_new%calc_prop(mask=mask, weight=qweight)
+            g2lid(gid_new) = lid_new
             xq%n = lid_new
           end do !ip
           !
@@ -1420,9 +1402,6 @@ subroutine quad_grid_balancing()
     call logmsg('Number of new METIS parts:        '//ta([np_met]))
     call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
     call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
-    if (iopt == 2) then
-      ldone = .true.
-    end if
     if (ldone) then
       call logmsg('Nothing to be done...')
       exit
@@ -1493,29 +1472,9 @@ subroutine quad_grid_balancing()
   end do
   xid = abs(xid)
   !
-  if (iopt == 2) then
-    !max_np = 2000
-    allocate(met)
-    call met%init_lump(ids=xid, nparts=max_np, verbose=.false., weight=weight)
-    call met%set_opts() !(niter_in=1000)
-    call met%recur()
-    
-    allocate(gid2part(gid_max)); gid2part = 0
-    do i = 1, met%nvtxs
-      gid = met%idmapinv(i)
-      gid2part(gid) = met%part(i) + 1
-    end do
-    do ir = 1, nr; do ic = 1, nc
-      gid = xid(ic,ir)
-      if (gid /= xid_mv) then
-        xid(ic,ir) = gid2part(gid)
-      end if
-    end do; end do
-    call grid_load_imbalance(xid, xid_mv, weight, imbal, np, wgt_max=wgt_max)
-    call logmsg('Overall load imbalance for '//ta([np])// &
-      ' parts: '//ta([imbal])//', max weight: '//ta([wgt_max]))
-    call met%clean(); deallocate(met); met => null()
-  end if
+  call grid_load_imbalance(xid, xid_mv, weight, imbal, np, wgt_max=wgt_max)
+  call logmsg('Overall load imbalance for '//ta([np])// &
+    ' parts: '//ta([imbal],'(f6.2)')//', max weight: '//ta([wgt_max]))
   
   call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
   call hdrg_gid%write(trim(f_gid_out)//'_np'//ta([np]))
@@ -1524,39 +1483,1239 @@ subroutine quad_grid_balancing()
     f = trim(f_gid_out)//'_imbal_np'//ta([np])
     call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
   end if
-  
+  call hdrg_gid%replace_grid(xi4=xid_split, mvi4=0)
+  call hdrg_gid%write(trim(f_gid_out)//'_split_np'//ta([np]))
+  !
   return
 end subroutine quad_grid_balancing
+
+!subroutine quad_grid_balancing()
+!! ******************************************************************************
+!!
+!!    SPECIFICATIONS:
+!! ------------------------------------------------------------------------------  
+!! -- local
+!  !
+!  logical, parameter :: lwriteximbal = .true.
+!  !
+!  type(tQuad), pointer :: q_new => null(), q_nbr => null()
+!  type(tBb), pointer :: bbip => null()
+!  type(tBb)  :: bbi_gid, bbi_new, bb_nbr
+!  type(tBbX) :: bbx_gid, bbx_hid, bbx_q
+!  type(tHdr), pointer :: hdrg_hid => null()
+!  type(tHdrHdr), pointer :: hdr => null()
+!  type(tCSV), pointer    :: csv => null()
+!  type(tMetis), pointer :: met => null()
+!  type(tChaco), pointer :: chac => null()
+!  type(tBb), dimension(:), pointer :: bbi_arr
+!  !
+!  !real(R8B), parameter :: wgt_fac = 0.7d0
+!  !real(R8B), parameter :: wgt_per = 0.05d0
+!  real(R8B), parameter :: wgt_fac = 0.7d0
+!  real(R8B), parameter :: wgt_per = 0.05d0
+!  
+!  logical :: lgidfirst, ldone, lmetis, luse_chaco, lcluster
+!  character(len=MXSLEN) :: f
+!  integer(I4B) :: weight_mv, gid_max_loc, iter, j, iopt, ipart, n_disjoint
+!  integer(I4B) :: lid_new, gid_new, iact, nact, nmet, np_met, lid_smallest, lid_nbr
+!  integer(I4B) :: np_strt, np_tgt, np, np_full, np_diff, ip, p, area, n_wgt
+!  integer(I4B), dimension(:,:), allocatable :: mask, part, xid_split
+!  integer(I4B), dimension(:,:), allocatable :: weight, qweight, ini_weight, unique
+!  integer(I4B), dimension(:), allocatable :: gid_first, wgt_sort_lid
+!  integer(I4B), dimension(:), allocatable :: gids_new, gid2part, xid_nbr
+!  real(R4B), dimension(:), allocatable :: wgt_sort
+!  real(R4B), dimension(:,:), allocatable :: ximbal
+!  real(R8B) :: wgt_avg, wgt_tgt, wgt_max, wgt_tot, wgt_q, wgt_qnbr, imbal, area_q, area_max
+!  real(R8B) :: wgt_min, wgt_new
+!! ------------------------------------------------------------------------------
+!  
+!  area_max = 12.5d0 !km2
+!  area_max = area_max * 1000.d0 * 1000.d0 ! m2
+!  !
+!  iopt = 2
+!  luse_chaco = .false.
+!  lcluster = .false.
+!  !
+!  allocate(hdrg_gid)
+!  call hdrg_gid%read_full_grid(f_gid_in)
+!  call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
+!  nc =  size(xid,1); nr = size(xid,2)
+!  if (.false.) then
+!    do ir = 1, nr; do ic = 1, nc
+!      if (xid(ic,ir) /= xid_mv) then
+!        if (xid(ic,ir) == 6) xid(ic,ir) = xid_mv
+!       end if
+!    end do; end do
+!  end if
+!  !
+!  ! read the weights
+!  if (len_trim(f_weight) > 0) then
+!    allocate(hdrg)
+!    call hdrg%read_full_grid(f_weight)
+!    call hdrg%get_grid(xi4=weight, mvi4=weight_mv)
+!    call hdrg%clean(); deallocate(hdrg); hdrg => null()
+!  else
+!    allocate(weight(nc,nr)); weight = 1
+!  end if
+!  !
+!  if (len_trim(gid_first_num) > 0) then
+!    lgidfirst = .true.
+!    call parse_line(s=gid_first_num, i4a=gid_first, token_in=',')
+!  else
+!    lgidfirst = .false.
+!  end if
+!  !
+!  ! set bbi and bbx for gid
+!  bbi_gid%ic0 = 1;   bbi_gid%ic1 = nc
+!  bbi_gid%ir0 = 1;   bbi_gid%ir1 = nr
+!  bbi_gid%ncol = nc; bbi_gid%nrow = nr
+!  hdr => hdrg_gid%hdr; call hdr%get_bbx(bbx_gid)
+!  xll = bbx_gid%xll; yll = bbx_gid%yll; cs_gid = bbx_gid%cs
+!  call bbo%set(prent_bbi=bbi_gid, prent_bbx=bbx_gid)
+!  !
+!  ! determine the global ids and bounding box
+!  allocate(bb_gid(gid_max), gids(gid_max), g2lid(gid_max))
+!  gids = 0; g2lid = 0
+!  do gid = 1, gid_max
+!    bb => bb_gid(gid)
+!    call bb%init()
+!  end do
+!  do ir = 1, nr; do ic = 1, nc
+!    gid = xid(ic,ir)
+!    if (gid /= xid_mv) then
+!      gids(gid) = 1
+!      bb => bb_gid(gid)
+!      bb%ic0 = min(bb%ic0, ic); bb%ic1 = max(bb%ic1, ic)
+!      bb%ir0 = min(bb%ir0, ir); bb%ir1 = max(bb%ir1, ir)
+!      bb%ncol = bb%ic1 - bb%ic0 + 1; bb%nrow = bb%ir1 - bb%ir0 + 1
+!    end if
+!  end do; enddo
+!  !
+!  gid_max_loc = maxval(xid)
+!  nlid = sum(gids)
+!  if (nlid > gid_max) then
+!    call errmsg('Increase gid_max.')
+!  end if
+!  allocate(xq)
+!  call xq%init(nlid, gid_max)
+!  !
+!  ! allocate the weight arrays
+!  allocate(wgt_sort(gid_max), wgt_sort_lid(gid_max))
+!  !
+!  lid = 0; wgt_tot = R8ZERO
+!  do gid = 1, gid_max
+!    if (gids(gid) == 1) then
+!      lid = lid + 1
+!      g2lid(gid) = lid
+!      q => xq%get_quad(lid)
+!      bb => bb_gid(gid) ! local bounding box
+!      bbx%xll = xll + (bb%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb%ir1)*cs_gid
+!      bbx%xur = bbx%xll + bb%ncol*cs_gid; bbx%yur = bbx%yll + bb%nrow*cs_gid
+!      bbx%cs = cs_gid
+!      call bbo%set(child_bbi=bb, child_bbx=bbx)
+!      call q%init(gid=gid, lid=lid, bbo=bbo)
+!      call get_mask(xid, gid, bb, mask)
+!      if (allocated(qweight)) deallocate(qweight)
+!      allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!        if (mask(jc,jr) > 0) then
+!          qweight(jc,jr) = weight(ic,ir)
+!        end if
+!      end do; end do;
+!      call q%calc_prop(mask=mask, weight=qweight)
+!      call q%get_prop(weight=wgt_q)
+!      wgt_tot = wgt_tot + wgt_q
+!    end if
+!  end do
+!  !
+!  if (.true.) then
+!    allocate(ini_weight(nc,nr)); ini_weight = 0
+!    do lid = 1, xq%n
+!      q => xq%get_quad(lid)
+!      if (q%get_flag(active=LDUM)) then
+!        call q%get_bb(child_bbi=bb)
+!        call get_mask(xid, q%gid, bb, mask)
+!        call q%get_prop(weight=wgt_q)
+!        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!          if (mask(jc,jr) == 1) then
+!            ini_weight(ic,ir) = wgt_q
+!          end if
+!        end do; end do
+!      end if
+!    end do
+!    f = trim(f_gid_out)//'_ini_weight'
+!    call writeflt(f, ini_weight, nc, nr, xll, yll, cs_gid, I4ZERO)
+!    deallocate(ini_weight)
+!  end if
+!  
+!  np_tgt = xq%get_number_active(); np_strt = np_tgt
+!  call grid_load_imbalance(xid, xid_mv, weight, imbal, np_strt)
+!  call logmsg('Start with load imbalance for '//ta([np_strt])//' parts: '//ta([imbal]))
+!  !
+!  gid_new = gid_max_loc; iter = 0
+!  allocate(xid_split(nc,nr)); xid_split = 0
+!  do while(.true.)
+!    iter = iter + 1
+!    !
+!    ! fill and sort the weights
+!    do lid = 1, xq%n
+!      q => xq%get_quad(lid)
+!      wgt_sort_lid(lid) = lid
+!      if (q%get_flag(active=LDUM)) then
+!        call q%get_prop(weight=wgt_q)
+!        wgt_sort(lid) = wgt_q 
+!      else
+!        wgt_sort(lid) = R4ZERO
+!      end if
+!    end do
+!    if (iopt == 2) then
+!      wgt_sort = -wgt_sort
+!      call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
+!      wgt_sort = -wgt_sort
+!      i = nint(wgt_per *real(xq%n))
+!      wgt_tgt = wgt_sort(i)
+!      call logmsg('Target weight: '//ta([wgt_tgt]))
+!      !max_np = wgt_tot/wgt_tgt
+!      !call logmsg('Target number of parts: '//ta([max_np])// &
+!      !  ', max weight: '//ta([wgt_tgt]))
+!    elseif(iopt == 3) then
+!      wgt_tgt = wgt_tot / max_np
+!    else
+!      !wgt_sort = -wgt_sort
+!      call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
+!      !wgt_sort = -wgt_sort
+!    end if
+!    ldone = .true.
+!    n = xq%n; lid_new = n; nmet = 0; np_met = 0
+!    do i = 1, n
+!      lid = wgt_sort_lid(i)
+!      q => xq%get_quad(lid)
+!      if (q%get_flag(active=LDUM)) then
+!        call q%get_prop(weight=wgt_q)
+!        ! check
+!        if (wgt_q /= wgt_sort(i)) then
+!          call errmsg('Quad_grid_balancing: program error.')
+!        end if
+!        !
+!        if (iopt == 1) then
+!          wgt_avg = wgt_tot/np_tgt
+!          wgt_tgt = tgt_imbal * wgt_avg
+!          !call logmsg('New average: '//ta([wgt_avg]))
+!          lmetis = .false.
+!          if (wgt_q > wgt_tgt) then
+!            np_full = nint(wgt_q/wgt_tgt)
+!            np_full = max(2,np_full)
+!            if (np_full > 1) then
+!              lmetis = .true.
+!            end if
+!            np_full = min(np_full, max_np - np_tgt + 1)
+!            if (np_full <= 1) then
+!              lmetis = .false.
+!            end if
+!          end if
+!        else
+!          if (wgt_q > wgt_tgt) then
+!            lmetis = .true.
+!            np_full = nint(wgt_q/(wgt_fac*wgt_tgt))
+!            np_full = max(2,np_full)
+!          else
+!            lmetis = .false.
+!          end if
+!          
+!          !call q%get_bb(child_bbx=bbx_q)
+!          !call q%get_prop(area=area)
+!          !area_q = area*bbx_q%cs**2
+!          !if (area_q > area_max) then
+!          !   lmetis = .true.
+!          !   wgt_tgt = wgt_fac*wgt_tot/max_np
+!          !   np_full = nint(wgt_q/wgt_tgt)
+!          !   if (np_full == 1) then
+!          !     lmetis = .false.
+!          !   end if
+!          !else
+!          !  lmetis = .false.
+!          !end if
+!        end if
+!        if (lmetis) then
+!          ldone = .false.
+!          ! number of parts
+!          nmet = nmet + 1
+!          np_met = np_met + np_full - 1
+!          np_tgt = np_tgt + np_full - 1 !!! OPTION 1 !!!
+!          !
+!          call q%get_bb(child_bbi=bb)
+!          call get_mask(xid, q%gid, bb, mask)
+!          if (allocated(qweight)) deallocate(qweight)
+!          allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!          do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!            jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!            if (mask(jc,jr) > 0) then
+!              xid_split(ic,ir) = np_full
+!              qweight(jc,jr) = weight(ic,ir)
+!            end if
+!          end do; end do;
+!          !
+!          ! full grid METIS
+!          allocate(met)
+!          call met%init(qweight, np_full)
+!          call met%set_opts()
+!          call met%recur(verbose=.true.)
+!          if (allocated(part)) deallocate(part)
+!          allocate(part,source=mask)
+!          call met%set_ids(part)
+!          call met%clean(); deallocate(met); met => null()
+!          !
+!          do ip = 1, np_full
+!            lid_new = lid_new + 1; gid_new = gid_new + 1
+!            q_new => xq%get_quad(lid_new)
+!            call bbi_new%init()
+!            do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!              jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!              p = part(jc,jr)
+!              if (p == ip) then
+!               ! determine the new bounding box
+!                bbi_new%ic0 = min(bbi_new%ic0,ic); bbi_new%ic1 = max(bbi_new%ic1,ic)
+!                bbi_new%ir0 = min(bbi_new%ir0,ir); bbi_new%ir1 = max(bbi_new%ir1,ir)
+!                bbi_new%ncol = bbi_new%ic1 - bbi_new%ic0 + 1;  bbi_new%nrow = bbi_new%ir1 - bbi_new%ir0 + 1
+!                if (xid(ic,ir) /= q%gid) then
+!                  call errmsg('quad_sub_grid_part: program error.')
+!                else
+!                  xid(ic,ir) = gid_new
+!                end if
+!              end if 
+!            end do; end do
+!            !
+!            bbx%xll = xll + (bbi_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bbi_new%ir1)*cs_gid
+!            bbx%xur = bbx%xll + bbi_new%ncol*cs_gid; bbx%yur = bbx%yll + bbi_new%nrow*cs_gid
+!            bbx%cs = cs_gid
+!            call bbo%set(child_bbi=bbi_new, child_bbx=bbx)
+!            call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+!            if (q%gid_prent > 0) then
+!              call q_new%set(hlev=q%hlev, gid_prent=q%gid_prent, lid_prent=q%lid_prent)
+!            else
+!              call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
+!            end if
+!            call get_mask(xid, gid_new, bbi_new, mask)
+!            if (allocated(qweight)) deallocate(qweight)
+!            allocate(qweight(bbi_new%ncol,bbi_new%nrow)); qweight = I4ZERO
+!            do ir = bbi_new%ir0, bbi_new%ir1; do ic = bbi_new%ic0, bbi_new%ic1
+!              jr = ir - bbi_new%ir0 + 1; jc = ic - bbi_new%ic0 + 1
+!              if (mask(jc,jr) > 0) then
+!                qweight(jc,jr) = weight(ic,ir)
+!              end if
+!            end do; end do;
+!            call q_new%calc_prop(mask=mask, weight=qweight)
+!            g2lid(gid_new) = lid_new
+!            xq%n = lid_new
+!          end do !ip
+!          !
+!          call q%set_flag(active=.false.)
+!        end if
+!      end if
+!    end do
+!    ! 
+!    !np_tgt = np_tgt + np_met !!! OPTION 2 !!!
+!    
+!    call logmsg('***** iteration '//ta([iter])//' *****')
+!    call logmsg('Number of times METIS was called: '//ta([nmet]))
+!    call logmsg('Number of new METIS parts:        '//ta([np_met]))
+!    call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
+!    call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
+!    if (iopt >= 2) then
+!      ldone = .true.
+!    end if
+!    if (ldone) then
+!      call logmsg('Nothing to be done...')
+!      exit
+!    end if
+!    if (imbal <= tgt_imbal) then
+!      call logmsg('Target load imbalance reached...')
+!      exit
+!    end if
+!    if (iter >= max_iter) then
+!      call logmsg('No convergence, maximum iterations reached: '//ta([max_iter]))
+!      exit
+!    end if
+!    if (iopt == 1) then
+!      if (np >= max_np) then
+!        call logmsg('Maximum number of partitions reached: '//ta([max_np]))
+!        exit
+!      end if
+!    end if
+!  end do
+!  !
+!  np_diff = np-np_strt
+!  call logmsg('Done, generated '//ta([np_diff])//' parts ('// &
+!    ta([100.*real(np_diff,R4B)/real(np,R4B)],'(f7.2)')//' % increment)')
+!  !
+!  ! renumber
+!  allocate(gids_new(gid_max)); gids_new = 0
+!  n = 0
+!  !
+!  do j = 1, size(gid_first)
+!     gid = gid_first(j)
+!     call logmsg('***** gid = '//ta([gid])//' beg: '//ta([n+1]))
+!     do lid = 1, xq%n
+!       q => xq%get_quad(lid)
+!       if (q%get_flag(active=LDUM)) then
+!         if (q%gid_prent == gid) then
+!           n = n + 1
+!           gids_new(q%gid) = n
+!         end if
+!       end if
+!     end do
+!     call logmsg('***** gid = '//ta([gid])//' end: '//ta([n]))
+!  end do
+!  !
+!  ! balancing: remove the small weights
+!  if ((iopt >= 2).and.(lcluster)) then
+!    call logmsg('Start clustering smallest weights.')
+!    do while(.true.)
+!      ! fill and sort the weights
+!      n_wgt = 0
+!      do lid = 1, xq%n
+!        q => xq%get_quad(lid)
+!        if (q%get_flag(active=LDUM)) then
+!          n_wgt = n_wgt + 1
+!          wgt_sort_lid(n_wgt) = lid
+!          call q%get_prop(weight=wgt_q)
+!          wgt_sort(n_wgt) = wgt_q 
+!        end if
+!      end do
+!      !call logmsg('Number of weights: '//ta([n_wgt]))
+!      !
+!      ! sort from small to large
+!      call quicksort_r(wgt_sort, wgt_sort_lid, n_wgt)
+!      !
+!      ldone = .true.
+!      do j = 1, n_wgt
+!        lid_smallest = wgt_sort_lid(j)
+!        q => xq%get_quad(lid_smallest)
+!        call q%get_prop(weight=wgt_q)
+!        call q%get_bb(child_bbi=bb)
+!        call get_mask(xid, q%gid, bb, mask)
+!        !
+!        ! find the smallest neightbor
+!        call get_neighbors(xid, xid_mv, q%gid, xid_nbr)
+!        !
+!        wgt_min = huge(0.d0)
+!        do i = 1, size(xid_nbr)
+!          gid = xid_nbr(i)
+!          lid = g2lid(gid)
+!          if (lid == 0) then
+!            call errmsg('Program error.')
+!          else
+!            q_nbr => xq%get_quad(lid)
+!            call q_nbr%get_prop(weight=wgt_qnbr)
+!            if (wgt_qnbr < wgt_min) then
+!              wgt_min = wgt_qnbr
+!              lid_nbr = lid
+!            end if
+!          end if
+!        end do
+!        !
+!        ! add the load to the neighbor
+!        call q%set_flag(active=.false.)
+!        q_nbr => xq%get_quad(lid_nbr)
+!        call q_nbr%get_prop(weight=wgt_qnbr)
+!        call q_nbr%get_bb(child_bbi=bb_nbr)
+!        bb_nbr%ic0 = min(bb_nbr%ic0,bb%ic0); bb_nbr%ic1 = max(bb_nbr%ic1,bb%ic1)
+!        bb_nbr%ir0 = min(bb_nbr%ir0,bb%ir0); bb_nbr%ir1 = max(bb_nbr%ir1,bb%ir1)
+!        bb_nbr%ncol =  bb_nbr%ic1 -  bb_nbr%ic0 + 1
+!        bb_nbr%nrow =  bb_nbr%ir1 -  bb_nbr%ir0 + 1
+!        wgt_new = wgt_qnbr + wgt_q
+!        if (wgt_new <= wgt_sort(n_wgt)) then
+!          !call logmsg('Weight gid '//ta([q_nbr%gid])//': '//ta([wgt_qnbr])// ' -> '//ta([wgt_new]))
+!          call q_nbr%set(weight=wgt_qnbr+wgt_q)
+!          call q_nbr%set(child_bbi=bb_nbr)
+!          !
+!          ! overwrite the gid
+!          do ir = bb%ir0, bb%ir1
+!            do ic = bb%ic0, bb%ic1
+!              if (xid(ic,ir) /= xid_mv) then
+!                if (xid(ic,ir) == q%gid) then
+!                  xid(ic,ir) = q_nbr%gid
+!                end if
+!              end if
+!           end do
+!          end do
+!          g2lid(q%gid) = 0
+!          ldone = .false.; exit
+!        end if
+!      end do
+!      if (ldone) then
+!        write(*,*) '**** Done ****'
+!        exit
+!      end if
+!    end do
+!    call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
+!    call logmsg('Overall load imbalance after clustering '//ta([np])//' parts: '//ta([imbal]))
+!    call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
+!    call hdrg_gid%write(trim(f_gid_out)//'_tmp_np'//ta([max_np]))
+!    !stop
+!  end if
+!  !
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    if (q%get_flag(active=LDUM)) then
+!      if (gids_new(q%gid) == 0) then
+!        n = n + 1
+!        gids_new(q%gid) = n
+!      end if
+!    end if
+!  end do
+!  !
+!  ! replace the global id
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    if (q%get_flag(active=LDUM)) then
+!      gid = gids_new(q%gid)
+!      call q%get_bb(child_bbi=bb)
+!      call get_mask(xid, q%gid, bb, mask)
+!      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!        if (mask(jc,jr) == 1) then
+!          xid(ic,ir) = -gid
+!        end if
+!      end do; end do
+!    end if
+!  end do
+!  xid = abs(xid)
+!  !
+!  ! lumped METIS
+!  if (iopt >= 2) then
+!    !max_np = 200
+!    allocate(met)
+!    call met%init_lump(ids=xid, nparts=max_np, verbose=.false., weight=weight)
+!    if (luse_chaco) then ! chaco
+!      allocate(chac)
+!      call chac%init_from_metis(met)
+!      !call chac%run(f_exe)
+!      call chac%set_metis(met)
+!      call chac%clean(); deallocate(chac); chac => null()
+!    else
+!      call met%set_opts() !(niter_in=1000)
+!      call met%recur()
+!      !call met%kway()
+!    end if
+!    !
+!    allocate(gid2part(gid_max)); gid2part = 0
+!    do i = 1, met%nvtxs
+!      gid = met%idmapinv(i)
+!      gid2part(gid) = met%part(i) + 1
+!    end do
+!    call met%clean(); deallocate(met); met => null()
+!    !
+!    do ir = 1, nr; do ic = 1, nc
+!      gid = xid(ic,ir)
+!      if (gid /= xid_mv) then
+!        ipart = gid2part(gid)
+!        xid(ic,ir) = ipart
+!      end if
+!    end do; end do
+!  end if ! iopt 2
+!  !
+!  call quad_repair_disjoint(xid, xid_mv, weight)
+!  
+!  ! compute disjoint parts
+!  allocate(bbi_arr(gid_max))
+!!  do i = 1, max_np
+!  do i = 1, gid_max
+!    call bbi_arr(i)%init()
+!  end do
+!  do ir = 1, nr; do ic = 1, nc
+!    gid = xid(ic,ir)
+!    if (gid /= xid_mv) then
+!      !ipart = gid2part(gid)
+!      !bbi_arr(ipart)%ic0 = min(bbi_arr(ipart)%ic0, ic)
+!      !bbi_arr(ipart)%ic1 = max(bbi_arr(ipart)%ic1, ic)
+!      !bbi_arr(ipart)%ir0 = min(bbi_arr(ipart)%ir0, ir)
+!      !bbi_arr(ipart)%ir1 = max(bbi_arr(ipart)%ir1, ir)
+!      !bbi_arr(ipart)%ncol = bbi_arr(ipart)%ic1 - bbi_arr(ipart)%ic0 + 1
+!      !bbi_arr(ipart)%nrow = bbi_arr(ipart)%ir1 - bbi_arr(ipart)%ir0 + 1
+!      bbi_arr(gid)%ic0 = min(bbi_arr(gid)%ic0, ic)
+!      bbi_arr(gid)%ic1 = max(bbi_arr(gid)%ic1, ic)
+!      bbi_arr(gid)%ir0 = min(bbi_arr(gid)%ir0, ir)
+!      bbi_arr(gid)%ir1 = max(bbi_arr(gid)%ir1, ir)
+!      bbi_arr(gid)%ncol = bbi_arr(gid)%ic1 - bbi_arr(gid)%ic0 + 1
+!      bbi_arr(gid)%nrow = bbi_arr(gid)%ir1 - bbi_arr(gid)%ir0 + 1
+!    end if
+!  end do; end do
+!  
+!  n_disjoint = 0
+!  !do ipart = 1, max_np
+!  do ipart = 1, gid_max
+!    if (g2lid(ipart) == 0) cycle
+!    bbip => bbi_arr(ipart)
+!    if (allocated(unique)) deallocate(unique)
+!    allocate(unique(bbip%ncol,bbip%nrow))
+!    unique = 0
+!    do ir = bbip%ir0, bbip%ir1; do ic = bbip%ic0, bbip%ic1
+!      gid = xid(ic,ir)
+!      if (gid /= xid_mv) then
+!        if (gid == ipart) then
+!          jc = ic - bbip%ic0 + 1; jr = ir - bbip%ir0 + 1
+!          unique(jc,jr) = 1
+!        end if
+!      end if
+!    end do; end do
+!    call calc_unique(unique, 5, regun, regbb, nreg, idum, 0., 0., 0.)
+!    if (nreg > 1) then
+!      n_disjoint = n_disjoint + 1
+!      do ireg = 1, nreg
+!        do jr = regbb(ireg)%ir0, regbb(ireg)%ir1
+!          do jc = regbb(ireg)%ic0, regbb(ireg)%ic1
+!            if (unique(jc,jr) == 1) then
+!              ic = jc + bbip%ic0 - 1
+!              ir = jr + bbip%ir0 - 1
+!              xid(ic,ir) = -abs(xid(ic,ir))
+!            end if
+!          end do
+!        end do
+!      end do
+!    end if
+!  end do
+!  !
+!  call logmsg('# disjoint: '//ta([n_disjoint])//'/'//ta([max_np]))
+!  !
+!  call grid_load_imbalance(xid, xid_mv, weight, imbal, np, wgt_max=wgt_max)
+!  call logmsg('Overall load imbalance for '//ta([np])// &
+!    ' parts: '//ta([imbal],'(f6.2)')//', max weight: '//ta([wgt_max]))
+!  
+!  call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
+!  call hdrg_gid%write(trim(f_gid_out)//'_np'//ta([np]))
+!  if (lwriteximbal) then
+!    call grid_load_imbalance(xid, xid_mv, weight, imbal, np, ximbal)
+!    f = trim(f_gid_out)//'_imbal_np'//ta([np])
+!    call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
+!  end if
+!  call hdrg_gid%replace_grid(xi4=xid_split, mvi4=0)
+!  call hdrg_gid%write(trim(f_gid_out)//'_split_np'//ta([np]))
+!  !
+!  return
+!end subroutine quad_grid_balancing
+
+subroutine quad_get_bb(xid, xid_mv, bba)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- dummy
+  integer(I4B), dimension(:,:), intent(in) :: xid
+  integer(I4B), intent(in) :: xid_mv
+  type(tBB), dimension(:), pointer, intent(inout) :: bba
+  ! -- local
+  type(tBB), pointer :: bb => null()
+  integer(I4B) :: nic, ir, ic, id, id_max
+! ------------------------------------------------------------------------------
+  if (associated(bba)) deallocate(bba); bba => null()
+  !
+  ! determine the maximum id
+  id_max = 0
+  do ir = 1, nr; do ic = 1, nc
+    id = xid(ic,ir)
+    if (id /= xid_mv) then
+      id_max = max(id_max, id)
+    end if
+  end do; end do
+  !
+  if (id_max == 0) then
+    call errmsg('quad_count_disjoint: maximum id  = 0')
+  end if
+  allocate(bba(id_max))
+  do id = 1, id_max
+    bb => bba(id)
+    call bb%init()
+  end do
+  !
+  ! determine the bounding box
+  do ir = 1, nr; do ic = 1, nc
+    id = xid(ic,ir)
+    if (id /= xid_mv) then
+      bb => bba(id)
+      bb%ic0 = min(bb%ic0, ic); bb%ic1 = max(bb%ic1, ic)
+      bb%ir0 = min(bb%ir0, ir); bb%ir1 = max(bb%ir1, ir)
+      bb%ncol = bb%ic1 - bb%ic0 + 1
+      bb%nrow = bb%ir1 - bb%ir0 + 1
+    end if
+  end do; end do
+  !
+  return
+end subroutine quad_get_bb
+
+function quad_count_disjoint(xid, xid_mv) result(n_child)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- dummy
+  integer(I4B), dimension(:,:), intent(inout) :: xid
+  integer(I4B), intent(in) :: xid_mv
+  integer(I4B) :: n_child ! result
+  ! -- local
+  type(tBB), pointer :: bb => null()
+  type(tBB), dimension(:), pointer :: bba => null()
+  integer(I4B), dimension(:,:), allocatable :: unique
+  integer(I4B) :: id, id_max
+! ------------------------------------------------------------------------------
+  n_child = 0
+  call quad_get_bb(xid, xid_mv, bba)
+  id_max = size(bba)
+  !
+  do id = 1, id_max
+    if (allocated(unique)) deallocate(unique)
+    bb => bba(id)
+    if (bb%defined()) then
+      allocate(unique(bb%ncol,bb%nrow))
+      unique = 0
+      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+        if (xid(ic,ir) /= xid_mv) then
+          if (xid(ic,ir) == id) then
+            jc = ic - bb%ic0 + 1; jr = ir - bb%ir0 + 1
+            unique(jc,jr) = 1
+          end if
+        end if
+      end do; end do
+      call calc_unique(unique, 5, regun, regbb, nreg, idum, 0., 0., 0.)
+      n_child = n_child + nreg - 1
+    end if
+  end do
+  !
+  ! clean up
+  if (allocated(unique)) deallocate(unique)
+  if (associated(bba)) deallocate(bba); bba => null()
+  if (allocated(unique)) deallocate(unique)
+  if (allocated(regun)) deallocate(regun)
+  if (allocated(regbb)) deallocate(regbb)
+  !
+  return
+end function quad_count_disjoint
+
+subroutine quad_get_disjoint(xid, xid_mv, weight, renumber, &
+  n_child, bba_child, id_child, id_parent, wgt_child, wgt_child_idx)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- dummy
+  integer(I4B), dimension(:,:),              intent(inout) :: xid
+  integer(I4B),                              intent(in)    :: xid_mv
+  integer(I4B), dimension(:,:),              intent(in)    :: weight
+  logical,                                   intent(in)    :: renumber
+  integer(I4B),                              intent(out)   :: n_child
+  type(tBB),    dimension(:),   pointer,     intent(inout) :: bba_child
+  integer(I4B), dimension(:),   allocatable, intent(inout) :: id_child
+  integer(I4B), dimension(:),   allocatable, intent(inout) :: id_parent
+  integer(I4B), dimension(:),   allocatable, intent(inout) :: wgt_child
+  integer(I4B), dimension(:),   allocatable, intent(inout) :: wgt_child_idx
+  !
+  ! -- local
+  type(tBB), pointer :: bb => null(), bb_child
+  type(tBB), dimension(:), pointer :: bba => null()
+  real(R4B), dimension(:), allocatable :: reg_wgt, r4wk
+  integer(I4B), dimension(:,:), allocatable :: unique
+  integer(I4B), dimension(:), allocatable :: reg_idx
+  integer(I4B) :: id_max, id, ir, ic, jr, jc, id_new, nreg, ireg, jreg
+! ------------------------------------------------------------------------------
+  if (associated(bba_child))    deallocate(bba_child); bba_child => null()
+  if (allocated(id_child))      deallocate(id_child)
+  if (allocated(id_parent))     deallocate(id_parent)
+  if (allocated(wgt_child))     deallocate(wgt_child)
+  if (allocated(wgt_child_idx)) deallocate(wgt_child_idx)
+  !
+  ! get the bounding box
+  call quad_get_bb(xid, xid_mv, bba)
+  id_max = size(bba)
+  !
+  n_child = quad_count_disjoint(xid, xid_mv)
+  if (n_child == 0) then
+    call logmsg('quad_get_disjoint: no disjoint parts found.')
+    return
+  end if
+  !
+  ! allocate
+  allocate(bba_child(n_child))
+  allocate(id_child(n_child)); id_child = 0
+  allocate(id_parent(n_child)); id_parent = 0
+  allocate(wgt_child(n_child)); wgt_child = 0
+  allocate(wgt_child_idx(n_child)); wgt_child_idx = 0
+  !
+  ! determine the
+  id_new = id_max
+  n_child = 0
+  do id = 1, id_max
+    if (allocated(unique)) deallocate(unique)
+    bb => bba(id)
+    if (.not.bb%defined()) cycle
+    !
+    allocate(unique(bb%ncol,bb%nrow))
+    unique = 0
+    do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+      if (xid(ic,ir) /= xid_mv) then
+        if (xid(ic,ir) == id) then
+          jc = ic - bb%ic0 + 1; jr = ir - bb%ir0 + 1
+          unique(jc,jr) = 1
+        end if
+      end if
+    end do; end do
+    call calc_unique(unique, 5, regun, regbb, nreg, idum, 0., 0., 0.)
+    if (nreg > 1) then
+      if (allocated(reg_wgt)) deallocate(reg_wgt)
+      if (allocated(reg_idx)) deallocate(reg_idx)
+      allocate(reg_wgt(nreg), reg_idx(nreg))
+      reg_wgt = R4ZERO
+      do ireg = 1, nreg
+        reg_idx(ireg) = ireg
+        do jr = regbb(ireg)%ir0, regbb(ireg)%ir1
+          do jc = regbb(ireg)%ic0, regbb(ireg)%ic1
+            if (regun(jc,jr) == ireg) then
+              ir = bb%ir0 + jr - 1; ic = bb%ic0 + jc - 1
+              reg_wgt(ireg) = reg_wgt(ireg) + real(weight(ic,ir),R4B)
+            end if
+          end do
+        end do
+      end do
+      !
+      ! sort from large to small
+      reg_wgt = -reg_wgt
+      call quicksort_r(reg_wgt, reg_idx, nreg)
+      reg_wgt = -reg_wgt
+      !
+      ! loop over the largest
+      do jreg = 2, nreg
+        n_child = n_child + 1
+        ireg = reg_idx(jreg)
+        if (renumber) then
+          id_new = id_new + 1
+          !
+          id_child(n_child)  = id_new
+          id_parent(n_child) = id
+          !
+          do jr = regbb(ireg)%ir0, regbb(ireg)%ir1
+            do jc = regbb(ireg)%ic0, regbb(ireg)%ic1
+            if (regun(jc,jr) == ireg) then
+              ir = bb%ir0 + jr - 1; ic = bb%ic0 + jc - 1
+              xid(ic,ir) = id_new
+            end if
+          end do; end do
+        end if ! renumber
+        !
+        ! store the weight
+        wgt_child(n_child) = reg_wgt(jreg)
+        !
+        ! store the bounding box
+        bb_child => bba_child(n_child)
+        bb_child%ic0 = regbb(ireg)%ic0 + bb%ic0 - 1 ! correct
+        bb_child%ic1 = regbb(ireg)%ic1 + bb%ic0 - 1 ! correct
+        bb_child%ir0 = regbb(ireg)%ir0 + bb%ir0 - 1 ! correct
+        bb_child%ir1 = regbb(ireg)%ir1 + bb%ir0 - 1 ! correct
+        bb_child%ncol = regbb(ireg)%ncol
+        bb_child%nrow = regbb(ireg)%nrow
+        !
+      end do
+    end if
+  end do
+  !
+  ! sort from large to small
+  allocate(r4wk(n_child))
+  do i = 1, n_child
+    wgt_child_idx(i) = i
+    r4wk(i) = real(wgt_child(i),R4B)
+  end do
+  r4wk = -r4wk
+  call quicksort_r(r4wk, wgt_child_idx, n_child)
+  r4wk = -r4wk
+  deallocate(r4wk)
+  !
+  ! clean up
+  if (associated(bba)) deallocate(bba); bba => null()
+  if (allocated(unique)) deallocate(unique)
+  if (allocated(regun)) deallocate(regun)
+  if (allocated(regbb)) deallocate(regbb)
+  if (allocated(reg_wgt)) deallocate(reg_wgt)
+  if (allocated(reg_idx)) deallocate(reg_idx)
+  !
+  return
+end subroutine quad_get_disjoint
+
+subroutine quad_get_id_weight(xid, xid_mv, weight, id_wgt)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- dummy
+  integer(I4B), dimension(:,:),              intent(inout) :: xid
+  integer(I4B),                              intent(in)    :: xid_mv
+  integer(I4B), dimension(:,:),              intent(in)    :: weight
+  integer(I4B), dimension(:),   allocatable, intent(inout) :: id_wgt
+  !
+  ! -- local
+  type(tBB), dimension(:), pointer :: bba => null()
+  integer(I4B) :: id_max, id, ir, ic
+! ------------------------------------------------------------------------------
+  if (allocated(id_wgt)) deallocate(id_wgt)
+  !
+  ! get the bounding box
+  call quad_get_bb(xid, xid_mv, bba)
+  id_max = size(bba)
+  !
+  allocate(id_wgt(id_max)); id_wgt = 0
+  do id = 1, id_max
+    bb => bba(id)
+    if (bb%defined()) then
+      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+        if (xid(ic,ir) /= xid_mv) then
+          if ((xid(ic,ir) == id)) then
+            id_wgt(id) = id_wgt(id) + weight(ic,ir)
+          end if
+        end if
+      end do; end do
+    end if
+  end do
+  !
+  ! clean up
+  deallocate(bba); bba => null()
+  !
+  return
+end subroutine quad_get_id_weight
+  
+subroutine quad_repair_disjoint(xid, xid_mv, weight)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- dummy
+  integer(I4B), dimension(:,:), intent(inout) :: xid
+  integer(I4B), intent(in) :: xid_mv
+  integer(I4B), dimension(:,:), intent(in) :: weight
+  ! -- local
+  type(tBB), pointer :: bb => null()
+  type(tBB), dimension(:), pointer :: bba_child => null()
+  real(R4B), dimension(:), allocatable :: nbr_wgt
+  logical :: found
+  integer(I4B), dimension(:), allocatable :: id_child, id_parent, wgt_child
+  integer(I4B), dimension(:), allocatable :: wgt_child_idx
+  integer(I4B), dimension(:), allocatable :: id_nbr, nbr_idx
+  integer(I4B), dimension(:), allocatable :: wgt_id
+  integer(I4B) :: n_child, i, j, k, nbr, id_max, wgt, idc, idp, idn, n
+! ------------------------------------------------------------------------------
+  !
+  ! get the weights for the ids
+  call quad_get_id_weight(xid, xid_mv, weight, wgt_id)
+  id_max = size(wgt_id)
+  !
+  ! get the disjoint regions
+  call quad_get_disjoint(xid, xid_mv, weight, .true., &
+    n_child, bba_child, id_child, id_parent, wgt_child, wgt_child_idx)
+  !
+  if (n_child == 0) then
+    call logmsg('No disjoint parts found, returning...')
+  else
+    call logmsg('Merging '//ta([n_child])//' areas from large to small...')
+  end if
+  !
+  ! loop over the regions from large to small
+  do k = 1, n_child
+    i = wgt_child_idx(k)
+    idc = id_child(i)
+    idp = id_parent(i)
+    bb => bba_child(i)
+    ! 
+    ! get the neighbors
+    call get_neighbors(xid, xid_mv, id_child(i), id_nbr)
+    !
+    nbr = size(id_nbr)
+    if (allocated(nbr_wgt)) deallocate(nbr_wgt)
+    if (allocated(nbr_idx)) deallocate(nbr_idx)
+    allocate(nbr_wgt(nbr), nbr_idx(nbr))
+    do j = 1, nbr
+      idn = id_nbr(j)
+      nbr_idx(j) = j
+      if (idn > id_max) then
+        nbr_wgt(j) = huge(nbr_wgt(j))
+      else
+        nbr_wgt(j) = wgt_id(idn)
+      end if
+    end do
+    !
+    ! sort the neighbors from small to large
+    call quicksort_r(nbr_wgt, nbr_idx, nbr)
+    !
+    ! get smallest neighbor
+    found = .false.
+    do j = 1, nbr
+      idn = id_nbr(nbr_idx(j))
+      if (idn <= id_max) then
+        found = .true.
+        exit
+      else
+        call logmsg('Searching for non-child neighbor...')
+      end if
+    end do
+    !
+    if (.not.found) then
+      call errmsg('quad_repair_disjoint: only child neighbors found.')
+    end if
+    !
+    ! merge the smallest regions
+    do ir = bb%ir0, bb%ir1
+      do ic = bb%ic0, bb%ic1
+        if (xid(ic,ir) /= xid_mv) then
+          if (xid(ic,ir) == idc) then
+            xid(ic,ir) = idn
+          end if
+        end if
+      end do
+    end do
+    !
+    ! update the weights
+    wgt_id(idn)  = wgt_id(idn) + wgt_child(i) ! neighbor
+    wgt_id(idp)  = wgt_id(idp) - wgt_child(i) ! parent
+  end do
+  !
+  ! clean up
+  if (allocated(wgt_id))        deallocate(wgt_id)
+  if (associated(bba_child))    deallocate(bba_child); bba_child => null()
+  if (allocated(id_child))      deallocate(id_child)
+  if (allocated(id_parent))     deallocate(id_parent)
+  if (allocated(wgt_child))     deallocate(wgt_child)
+  if (allocated(wgt_child_idx)) deallocate(wgt_child_idx)
+  if (allocated(nbr_wgt))       deallocate(nbr_wgt)
+  if (allocated(nbr_idx))       deallocate(nbr_idx)
+  !
+  return
+end subroutine quad_repair_disjoint
+  
+!subroutine quad_repair_disjoint(xid, xid_mv, weight)
+!! ******************************************************************************
+!!
+!!    SPECIFICATIONS:
+!! ------------------------------------------------------------------------------
+!  ! -- dummy
+!  integer(I4B), dimension(:,:), intent(inout) :: xid
+!  integer(I4B), intent(in) :: xid_mv
+!  integer(I4B), dimension(:,:), intent(in) :: weight
+!  ! -- local
+!  type(tBb), pointer :: bb => null()
+!  type(tBb), dimension(:), pointer :: bba => null()
+!  real(R4B), dimension(:), allocatable :: reg_wgt, nbr_wgt
+!  integer(I4B), dimension(:,:), allocatable :: unique
+!  integer(I4B), dimension(:), allocatable :: id_wgt, reg_idx, id_nbr, nbr_idx
+!  integer(I4B) :: id_max, nc, nr, ic, ir, jc, jr, id, i, j, ireg, jreg, nbr
+!! ------------------------------------------------------------------------------
+!  nc = size(xid,1); nr = size(xid,2)
+!  id_max = 0
+!  do ir = 1, nr; do ic = 1, nc
+!    id = xid(ic,ir)
+!    if (id /= xid_mv) then
+!      id_max = max(id_max, id)
+!    end if
+!  end do; end do
+!  !
+!  allocate(bba(id_max), id_wgt(id_max))
+!  do i = 1, id_max
+!    call bba(i)%init()
+!  end do
+!  !
+!  id_wgt = 0
+!  do ir = 1, nr; do ic = 1, nc
+!    id = xid(ic,ir)
+!    if (id /= xid_mv) then
+!      !
+!      ! bounding box
+!      bba(id)%ic0 = min(bba(id)%ic0, ic)
+!      bba(id)%ic1 = max(bba(id)%ic1, ic)
+!      bba(id)%ir0 = min(bba(id)%ir0, ir)
+!      bba(id)%ir1 = max(bba(id)%ir1, ir)
+!      bba(id)%ncol = bba(id)%ic1 - bba(id)%ic0 + 1
+!      bba(id)%nrow = bba(id)%ir1 - bba(id)%ir0 + 1
+!      !
+!      ! weight
+!      id_wgt(id) = id_wgt(id) + weight(ic,ir)
+!    end if
+!  end do; end do
+!  !
+!  do i = 1, id_max
+!    if (allocated(unique)) deallocate(unique)
+!    bb => bba(i)
+!    !
+!    allocate(unique(bb%ncol,bb%nrow))
+!    unique = 0
+!    do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!      id = xid(ic,ir)
+!      if (id /= xid_mv) then
+!        if (id == i) then
+!          jc = ic - bb%ic0 + 1; jr = ir - bb%ir0 + 1
+!          unique(jc,jr) = 1
+!        end if
+!      end if
+!    end do; end do
+!    call calc_unique(unique, 5, regun, regbb, nreg, idum, 0., 0., 0.)
+!    if (nreg > 1) then
+!      if (allocated(reg_wgt)) deallocate(reg_wgt)
+!      if (allocated(reg_idx)) deallocate(reg_idx)
+!      allocate(reg_wgt(nreg), reg_idx(nreg))
+!      reg_wgt = R4ZERO
+!      do ireg = 1, nreg
+!        reg_idx(ireg) = ireg
+!        do jr = regbb(ireg)%ir0, regbb(ireg)%ir1
+!          do jc = regbb(ireg)%ic0, regbb(ireg)%ic1
+!            if (regun(jc,jr) == ireg) then
+!              ir = bb%ir0 + jr - 1; ic = bb%ic0 + jc - 1
+!              reg_wgt(ireg) = reg_wgt(ireg) + real(weight(ic,ir),R4B)
+!            end if
+!          end do
+!        end do
+!      end do
+!      !
+!      ! sort from large to small
+!      reg_wgt = -reg_wgt
+!      call quicksort_r(reg_wgt, reg_idx, nreg)
+!      reg_wgt = -reg_wgt
+!      !
+!      ! first, label the smaller region to id_max + ireg
+!      do jreg = 2, nreg
+!        ireg = reg_idx(jreg)
+!        do jr = regbb(ireg)%ir0, regbb(ireg)%ir1
+!          do jc = regbb(ireg)%ic0, regbb(ireg)%ic1
+!            if (regun(jc,jr) == ireg) then
+!              ir = bb%ir0 + jr - 1; ic = bb%ic0 + jc - 1
+!              xid(ic,ir) = id_max + ireg
+!            end if
+!          end do
+!        end do
+!      end do
+!      !
+!      ! loop over the smallest regions
+!      do jreg = 2, nreg
+!        ireg = reg_idx(jreg)
+!        
+!        ! get the neighbors
+!        call get_neighbors(xid, xid_mv, id_max + ireg, id_nbr)
+!        !
+!        nbr = size(id_nbr)
+!        if (allocated(nbr_wgt)) deallocate(nbr_wgt)
+!        if (allocated(nbr_idx)) deallocate(nbr_idx)
+!        allocate(nbr_wgt(nbr), nbr_idx(nbr))
+!        do j = 1, nbr
+!          id = id_nbr(j)
+!          nbr_idx(j) = j
+!          nbr_wgt(j) = id_wgt(id)
+!        end do
+!        call quicksort_r(nbr_wgt, nbr_idx, nbr)
+!        !
+!        ! smallest neighbor
+!        id = id_nbr(nbr_idx(1))
+!        !
+!        ! merge the smallest regions
+!        do jr = regbb(ireg)%ir0, regbb(ireg)%ir1
+!          do jc = regbb(ireg)%ic0, regbb(ireg)%ic1
+!            if (regun(jc,jr) == ireg) then
+!              ir = bb%ir0 + jr - 1; ic = bb%ic0 + jc - 1
+!              xid(ic,ir) = id
+!            end if
+!          end do
+!        end do
+!        !
+!        ! update the weights
+!        id_wgt(id) = id_wgt(id) + reg_wgt(jreg)
+!        id_wgt(i)  = id_wgt(i)  - reg_wgt(jreg)
+!      end do
+!    end if
+!  end do
+!  !
+!  return
+!end subroutine quad_repair_disjoint
+
+subroutine quad_check_sub_grid_part()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  type(tMetis), pointer :: met => null()
+  type(tChaco), pointer :: chac => null()
+  integer(I4B), dimension(:,:), allocatable :: weight
+  integer(I4B) :: weight_mv, nc, nr, np
+! ------------------------------------------------------------------------------
+  !
+  allocate(hdrg_gid)
+  call hdrg_gid%read_full_grid(f_gid_in)
+  call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
+  call hdrg_gid%clean(); deallocate(hdrg_gid); hdrg_gid => null()
+  nc =  size(xid,1); nr = size(xid,2)
+
+  ! read the weights
+  if (len_trim(f_weight) > 0) then
+    allocate(hdrg)
+    call hdrg%read_full_grid(f_weight)
+    call hdrg%get_grid(xi4=weight, mvi4=weight_mv)
+    call hdrg%clean(); deallocate(hdrg); hdrg => null()
+  else
+    allocate(weight(nc,nr)); weight = 1
+  end if
+  !
+  do np = np_beg, np_end, np_step
+    allocate(met)
+    call met%init_lump(ids=xid, nparts=np, verbose=.false., weight=weight)
+    if (luse_chaco) then ! chaco
+      allocate(chac)
+      call chac%init_from_metis(met)
+      call chac%run(f_exe)
+      call chac%set_metis(met)
+      call chac%clean(); deallocate(chac); chac => null()
+    else
+      call met%set_opts() !(niter_in=1000)
+      call met%recur()
+      !call met%kway()
+    end if
+    call met%clean(); deallocate(met); met => null()
+  end do
+  !
+  ! clean up
+  if (allocated(xid)) deallocate(xid)
+  if (allocated(weight)) deallocate(weight)
+  !
+  return
+end subroutine quad_check_sub_grid_part
 
 subroutine quad_sub_grid_part()
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------  
-! -- local
   !
-  logical, parameter :: lwriteximbal = .true.
+  logical, parameter :: ldebug = .false.
   !
-  type(tQuad), pointer :: q_new => null()
-  type(tBb)  :: bbi_gid, bb_new
+  type(tQuad), pointer :: q_new => null(), q_nbr => null()
+  type(tBb), pointer :: bbip => null()
+  type(tBb)  :: bbi_gid, bbi_new, bb_nbr
   type(tBbX) :: bbx_gid, bbx_hid, bbx_q
-  type(tHdr), pointer :: hdrg_hid => null()
   type(tHdrHdr), pointer :: hdr => null()
   type(tCSV), pointer    :: csv => null()
   type(tMetis), pointer :: met => null()
+  type(tChaco), pointer :: chac => null()
   !
-  logical :: lfound, lfirst, llast, lhiera, lgidsep, lok
+  logical :: lgidsep, lmetis
   character(len=MXSLEN) :: f
-  character(len=MXSLEN), dimension(:), allocatable :: sa
-  integer(I4B) :: ngid, gid_max_loc, nh, ih, xidh_mv, weight_mv, id, nhid, j, n_old
-  integer(I4B) :: np_rem, np, np_full, np_lump, np_lump_loc, ip, p, lid_new, gid_new, iact
-  integer(I4B), dimension(:,:), allocatable :: mask, part, xidh, hmap
-  integer(I4B), dimension(:,:), allocatable :: weight, qweight, lweight
-  integer(I4B), dimension(:), allocatable :: lev_id, uplev_id, hid, hlev, gid_sep, gids_new
+  real(R4B), dimension(:), allocatable :: wgt_sort
   real(R4B), dimension(:,:), allocatable :: ximbal
-  real(R8B), dimension(:), allocatable :: wgth
-  real(R8B) :: wgt, wgt_metis, wgt_q, xm, ym, wgt_tot, wgt_tgt, imbal
+  real(R8B) :: wgt_avg, wgt_tgt, wgt_max, wgt_tot, wgt_q, wgt_qnbr, imbal
+  real(R8B) :: wgt_min, wgt_new, wgt_sep, wgt_lump
+  integer(I4B), dimension(:,:), allocatable :: mask, part, xid_split, xid_sep, mask_sep
+  integer(I4B), dimension(:,:), allocatable :: weight, qweight, ini_weight
+  integer(I4B), dimension(:), allocatable :: gid_sep, wgt_sort_lid
+  integer(I4B), dimension(:), allocatable :: gids_new, gid2part, xid_nbr
+  integer(I4B), dimension(1) :: loc
+  integer(I4B) :: weight_mv, gid_max_loc, j, ipart, n_disjoint
+  integer(I4B) :: lid_new, gid_new, gid_offset
+  integer(I4B) :: np, np_full, nmet, np_met, np_diff, ip, p, n_wgt, np_strt
+  integer(I4B) :: np_lump, np_tot, offset
 ! ------------------------------------------------------------------------------
+  !
+  call logmsg('***** wgt_fac: '//ta([wgt_fac]))
+  call logmsg('***** wgt_per: '//ta([wgt_per]))
   !
   allocate(hdrg_gid)
   call hdrg_gid%read_full_grid(f_gid_in)
@@ -1614,6 +2773,9 @@ subroutine quad_sub_grid_part()
   allocate(xq)
   call xq%init(nlid, gid_max)
   !
+  ! allocate the weight arrays
+  allocate(wgt_sort(gid_max), wgt_sort_lid(gid_max))
+  !
   lid = 0; wgt_tot = R8ZERO
   do gid = 1, gid_max
     if (gids(gid) == 1) then
@@ -1641,519 +2803,242 @@ subroutine quad_sub_grid_part()
     end if
   end do
   !
-  ! create the hierarchy
-  if (len_trim(f_hiera_in) > 0) then
-    lhiera = .true.
-    call parse_line(f_hiera_in, sa, token_in=',')
-    nh = size(sa)
-    allocate(hmap(nh,nlid), hlev(nh)); hmap = 0
+  call logmsg('Total weight: '//ta([int(wgt_tot)]))
+  !
+  gid_new = gid_max_loc
+  if (lgidsep) then
+    allocate(xid_split(nc,nr)); xid_split = 0
+    wgt_sep = R8ZERO
+    allocate(xid_sep(nc,nr)); xid_sep = xid_mv
+    allocate(mask_sep(nc,nr)); mask_sep = 0
+    np_tot = 0
+    do i = 1, size(gid_sep)
+      gid = gid_sep(i); lid = g2lid(gid)
+      q => xq%get_quad(lid)
+      call q%get_prop(weight=wgt_q)
+      !
+      np_full =  max(nint(real(max_np,R8B)*wgt_q/wgt_tot),1)
+      !
+      wgt_sep = wgt_sep + wgt_q
+      call q%get_bb(child_bbi=bb)
+      call get_mask(xid, q%gid, bb, mask)
+      if (allocated(qweight)) deallocate(qweight)
+      allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+        if (mask(jc,jr) > 0) then
+          xid_split(ic,ir) = np_full
+          qweight(jc,jr) = weight(ic,ir)
+        end if
+      end do; end do;
+      !
+      ! full grid METIS
+      if (np_full == 1) then
+        call logmsg('***** Skipping METIS full partitioning! *****')
+        np_tot = np_tot + 1
+        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+          if (mask(jc,jr) > 0) then
+            xid_sep(ic,ir) = np_tot
+          end if
+        end do; end do
+      else
+        allocate(met)
+        call met%init(qweight, np_full)
+        call met%set_opts()
+        call met%recur()
+        if (allocated(part)) deallocate(part)
+        allocate(part,source=mask)
+        call met%set_ids(part)
+        call met%clean(); deallocate(met); met => null()
+        !
+        do ip = 1, np_full
+          np_tot = np_tot + 1
+          gid_new = gid_new + 1
+          do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+            jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+            p = part(jc,jr)
+            if (p == ip) then
+              if (xid(ic,ir) /= gid) then
+                call errmsg('quad_sub_grid_part: program error.')
+              else
+                xid_sep(ic,ir) = np_tot
+              end if
+            end if 
+          end do; end do
+        end do
+      end if
+      !
+      ! deactive the quad and remove the ids's, store mask
+      call q%set_flag(active=.false.)
+      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+        if (xid(ic,ir) == gid) then
+          mask_sep(ic,ir) = gid
+          xid(ic,ir) = xid_mv
+        end if
+      end do; end do
+    end do
+    wgt_lump = wgt_tot - wgt_sep
+    call logmsg('Weight for sub-optimal partitioning: '//ta([int(wgt_lump)]))
+    call logmsg('Estimate # lumped partitions: '//ta([nint(real(max_np)*wgt_lump/wgt_tot)]))
+    np_lump = max_np - np_tot
+    call logmsg('Realized # lumped partitions: '//ta([np_lump]))
   else
-    lhiera = .false.
-    nh = 1
-    allocate(hmap(nh,nlid), hlev(nh)); hmap = 1
+    np_lump = max_np
   end if
   !
-  if (lhiera) then
-    do ih = 1, nh
-      allocate(hdrg_hid)
-      call hdrg_hid%read_full_grid(sa(ih))
-      call hdrg_hid%get_grid(xi4=xidh, mvi4=xidh_mv)
-      hdr => hdrg_hid%hdr; call hdr%get_bbx(bbx_hid)
-      !
-      do lid = 1, xq%n
-        q => xq%get_quad(lid)
-        call q%get_prop(xm=xm, ym=ym)
-        call get_icr(ic, ir, xm, ym, bbx_hid%xll, bbx_hid%yur, bbx_hid%cs)
-        if ((ic > 0).and.(ir> 0)) then
-          id = xidh(ic,ir)
-          if (id /= xidh_mv) then
-            hmap(ih,lid) = id
+  if (ldebug) then
+    allocate(ini_weight(nc,nr)); ini_weight = 0
+    do lid = 1, xq%n
+      q => xq%get_quad(lid)
+      if (q%get_flag(active=LDUM)) then
+        call q%get_bb(child_bbi=bb)
+        call get_mask(xid, q%gid, bb, mask)
+        call q%get_prop(weight=wgt_q)
+        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+          if (mask(jc,jr) == 1) then
+            ini_weight(ic,ir) = wgt_q
           end if
-        else
-          call errmsg('quad_sub_grid_part: could not sample point.')
-        end if
-      end do
-      call hdrg_hid%clean(); deallocate(hdrg_hid); hdrg_hid => null()
-    end do
-    !
-    ! check
-    if (minval(hmap(1,:)) == 0) then
-      call errmsg('quad_sub_grid_part: not all areas are classified.')
-    end if
-    !
-  end if  
-  !
-  ! set the levels
-  do lid = 1, xq%n
-    q => xq%get_quad(lid)
-    call q%set(hlev=hmap(:,lid))
-  end do
-  !
-  wgt_tgt = wgt_tot / npart
-  np_rem = npart
-  !area_tgt = area_tot / 5
-  !
-  do ih = 1, nh
-    ! get the IDs
-    call get_unique(hmap(ih,:), hid)
-    nhid = size(hid)
-    allocate(wgth(nhid)); wgth = R8ZERO
-    !
-    do i = 1, nhid
-      id = hid(i)
-      if (id == 0) cycle
-      do lid = 1, xq%n
-        q => xq%get_quad(lid)
-        if (q%get_flag(active=LDUM)) then
-          if (q%get_hlev(ih) == id) then
-            call q%get_prop(weight=wgt_q)
-            wgth(i) = wgth(i) + wgt_q
-          end if
-        end if
-      end do
-    end do
-    !
-    gid_new = gid_max_loc
-    !
-    ! check the target area
-    do i = 1, nhid
-      id = hid(i)
-      if (wgth(i) == R8ZERO) cycle
-      if (wgth(i) < wgt_tgt) then ! merge the quads for this level
-        lid_new = xq%n + 1; gid_new = gid_new + 1
-        call bb_new%init()
-        ! merge the quads
-        lfound = .false.; lfirst = .true.
-        do lid = 1, xq%n
-          q => xq%get_quad(lid)
-          if (q%get_flag(active=LDUM)) then
-            if (q%get_hlev(ih) == id) then
-              lfound = .true.
-              call q%set_flag(active=.false.)
-              call q%get_bb(child_bbi=bb)
-              ! change the id
-              do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                if (xid(ic,ir) == q%gid) then
-                  xid(ic,ir) = gid_new
-                end if
-              end do; end do
-              !
-              ! determine the new bounding box
-              bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
-              bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
-              bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
-              !
-              if (lfirst) then
-                hlev = 0; hlev(1:ih) = q%hlev(1:ih)
-                lfirst = .false.
-              end if
-            end if
-          end if
-        end do
-        if (lfound) then
-          bbx%xll = xll + (bb%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb%ir1)*cs_gid
-          bbx%xur = bbx%xll + bb%ncol*cs_gid; bbx%yur = bbx%yll + bb%nrow*cs_gid
-          bbx%cs = cs_gid
-          call bbo%set(child_bbi=bb_new, child_bbx=bbx)
-          !
-          q_new => xq%get_quad(lid_new)
-          call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
-          call q_new%set(hlev=hlev)
-          call q_new%get_bb(child_bbi=bb)
-          call get_mask(xid, q_new%gid, bb, mask)
-          call q_new%calc_prop(mask=mask)
-          xq%n = lid_new
-        end if
-      else
-        llast = .false.
-        if (ih == nh) then
-          llast = .true.
-        else
-          llast = .true.
-          do lid = 1, xq%n
-            q => xq%get_quad(lid)
-            if (q%get_flag(active=LDUM)) then
-              if (q%get_hlev(ih) == id) then
-                if (q%get_hlev(ih+1) /= 0) then
-                  llast = .false.
-                end if
-              end if
-            end if
-          end do
-        end if
-        !
-        if (llast) then
-          ! set 0: count weight for seperate IDS subject to full METIS partitioning
-          wgt_metis = R8ZERO
-          if (lgidsep) then
-            do j = 1, size(gid_sep)
-              gid = gid_sep(j); lid = g2lid(gid)
-              q => xq%get_quad(lid)
-              if (q%get_flag(active=LDUM)) then
-                if (q%get_hlev(ih) == id) then
-                  call q%get_prop(weight=wgt_q)
-                  if (wgt_q > wgt_tgt) then
-                    wgt_metis = wgt_metis + wgt_q
-                    call q%set_flag(active=.false.)
-                  end if
-                end if
-              end if
-            end do
-          end if
-          !
-          ! step 1: apply full METIS for quads with weight > weight_fac*weight_tgt
-          n = xq%n; lid_new = n
-          do lid = 1, n
-            q => xq%get_quad(lid)
-            if (q%get_flag(active=LDUM)) then
-              if (q%get_hlev(ih) == id) then
-                call q%get_prop(weight=wgt_q)
-                if (wgt_q > weight_fac*wgt_tgt) then
-                  ! number of parts
-                  np_full = nint(wgt_q/(weight_fac*wgt_tgt))
-                  np_full = max(2,np_full)
-                  call q%get_bb(child_bbi=bb)
-                  call get_mask(xid, q%gid, bb, mask)
-                  if (allocated(qweight)) deallocate(qweight)
-                  allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
-                  do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                    jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-                    if (mask(jc,jr) > 0) then
-                      qweight(jc,jr) = weight(ic,ir)
-                    end if
-                  end do; end do;
-                  !
-                  ! full grid METIS
-                  allocate(met)
-                  call met%init(qweight, np_full)
-                  call met%set_opts()
-                  call met%recur(verbose=.true.)
-                  if (allocated(part)) deallocate(part)
-                  allocate(part,source=mask)
-                  call met%set_ids(part)
-                  call met%clean(); deallocate(met); met => null()
-                  !
-                  do ip = 1, np_full
-                    lid_new = lid_new + 1; gid_new = gid_new + 1
-                    q_new => xq%get_quad(lid_new)
-                    call bb_new%init()
-                    do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                      jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-                      p = part(jc,jr)
-                      if (p == ip) then
-                       ! determine the new bounding box
-                        bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
-                        bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
-                        bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
-                        if (xid(ic,ir) /= q%gid) then
-                          call errmsg('quad_sub_grid_part: program error.')
-                        else
-                          xid(ic,ir) = gid_new
-                        end if
-                      end if 
-                    end do; end do
-                    !
-                    bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
-                    bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
-                    bbx%cs = cs_gid
-                    call bbo%set(child_bbi=bb_new, child_bbx=bbx)
-                    call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
-                    call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
-                    call get_mask(xid, gid_new, bb_new, mask)
-                    if (allocated(qweight)) deallocate(qweight)
-                    allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
-                    do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
-                      jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
-                      if (mask(jc,jr) > 0) then
-                        qweight(jc,jr) = weight(ic,ir)
-                      end if
-                    end do; end do;
-                    call q_new%calc_prop(mask=mask, weight=qweight)
-                    xq%n = lid_new
-                  end do !ip
-                  !
-                  call q%set_flag(active=.false.)
-                end if
-              end if
-            end if
-          end do
-          !
-          ! set: apply lumped METIS to the other
-          n_old = xq%n
-          wgt = wgth(i) - wgt_metis
-          if (wgt < R8ZERO) then 
-            call errmsg('quad_sub_grid_part: program error')
-          end if
-          np_lump = 0
-          if (wgt > wgt_tgt) then
-            np_lump = max(2,nint(wgt/wgt_tgt))
-            !
-            ! determine the bounding box and work array
-            call bb_new%init(); lfirst = .true.
-            do iact = 1, 2
-              do lid = 1, xq%n
-                q => xq%get_quad(lid)
-                if (q%get_flag(active=LDUM)) then
-                  if (q%get_hlev(ih) == id) then
-                    call q%get_bb(child_bbi=bb)
-                    if (iact == 1) then
-                      bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
-                      bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
-                      bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1
-                      bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
-                    else
-                      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                        if (xid(ic,ir) == q%gid) then
-                          jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
-                          i4w2d(jc,jr) = q%lid
-                          lweight(jc,jr) = weight(ic,ir)
-                        end if
-                      end do; end do
-                    end if
-                    if (lfirst) then
-                      hlev = 0; hlev(1:ih) = q%hlev(1:ih)
-                      lfirst = .false.
-                    end if
-                  end if
-                end if
-              end do
-              if (iact == 1) then
-                if (allocated(i4w2d)) deallocate(i4w2d)
-                if (allocated(lweight)) deallocate(lweight)
-                allocate(i4w2d(bb_new%ncol,bb_new%nrow))
-                allocate(lweight(bb_new%ncol,bb_new%nrow))
-                i4w2d = I4ZERO; lweight = I4ZERO
-              end if
-            end do
-            !
-            np_lump_loc = np_lump
-            do while(.true.)
-              if (associated(met)) then
-                call met%clean(); deallocate(met); met => null()
-              end if
-              allocate(met)
-              call logmsg('**** Lumped METIS for '//ta([np_lump_loc])//' parts *****')
-              call met%init_lump(i4w2d, np_lump_loc, verbose=.true., weight=lweight)
-              call logmsg('**** Number of graph vertices: '//ta([met%nvtxs]))
-              call met%set_opts()
-              call met%recur(ok=lok)
-              !call met%set_opts(contig_in=0)
-              !call met%kway(ok=lok)
-              if (.not.lok) then
-                call logmsg('**** Warning, lumped METIS failed for '//ta([np_lump_loc])//' parts *****')
-                np_lump_loc = np_lump_loc - 1
-              else
-                exit
-              end if
-            end do
-            if (allocated(part)) deallocate(part)
-            !
-            do ip = 1, np_lump_loc
-              lid_new = lid_new + 1; gid_new = gid_new + 1
-              q_new => xq%get_quad(lid_new)
-              call bb_new%init()
-              do j = 1, met%nvtxs
-                if (met%part(j) == ip - 1) then
-                  lid = met%idmapinv(j)
-                  q => xq%get_quad(lid)
-                  if ((q%get_hlev(ih) /= id).or.(.not.q%get_flag(active=LDUM))) then
-                    call errmsg('quad_sub_grid_part: program error')
-                  end if
-                  call q%set_flag(active=.false.)
-                  call q%get_bb(child_bbi=bb)
-                  bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
-                  bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
-                  bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1
-                  bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
-                  !
-                  do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                    if (xid(ic,ir) == q%gid) then
-                      xid(ic,ir) = gid_new
-                    end if
-                  end do; end do
-                end if
-              end do
-              bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
-              bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
-              bbx%cs = cs_gid
-              call bbo%set(child_bbi=bb_new, child_bbx=bbx)
-              call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo) !TODO: set parent LIST
-              call q_new%set(hlev=hlev) 
-              call q_new%get_bb(child_bbi=bb)
-              call get_mask(xid, q_new%gid, bb, mask)
-              call q_new%calc_prop(mask=mask)
-              xq%n = lid_new
-            end do
-            call met%clean(); deallocate(met); met => null()
-          end if
-          !
-          ! check
-          do lid = 1, n_old
-            q => xq%get_quad(lid)
-            if (q%get_flag(active=LDUM)) then
-              call errmsg('quad_sub_grid_part: program error.')
-            end if
-          end do
-          !
-          n = xq%get_number_active()
-          call logmsg('# unique IDs BEFORE splitting: '//ta([n]))
-          !
-          ! split in to non-unique
-          n = xq%n; lid_new = n
-          do lid = 1, n
-            q => xq%get_quad(lid)
-            if (q%get_flag(active=LDUM)) then
-              call q%get_bb(child_bbi=bb)
-              call get_mask(xid, q%gid, bb, i4w2d)
-              call calc_unique(i4w2d, 5, regun, regbb, nreg, idum, 0., 0., 0.)
-              if (nreg > 1) then
-                do ireg = 1, nreg
-                  lid_new = lid_new + 1; gid_new = gid_new + 1
-                  q_new => xq%get_quad(lid_new)
-                  call bb_new%init()
-                  do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                    jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-                    if (regun(jc,jr) == ireg) then
-                      bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
-                      bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
-                      bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1
-                      bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
-                      xid(ic,ir) = gid_new
-                    end if
-                  end do; end do
-                  bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
-                  bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
-                  bbx%cs = cs_gid
-                  call bbo%set(child_bbi=bb_new, child_bbx=bbx)
-                  call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
-                  call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid) 
-                  call q_new%get_bb(child_bbi=bb)
-                  call get_mask(xid, q_new%gid, bb, mask)
-                  call q_new%calc_prop(mask=mask)
-                  xq%n = lid_new
-                end do
-                call q%set_flag(active=.false.)
-              end if
-            end if
-          end do
-          !
-          n = xq%get_number_active()
-          call logmsg('# unique IDs AFTER splitting: '//ta([n]))
-          !
-          if (lgidsep) then
-            n = xq%get_number_active()
-            np_rem = npart - n
-            wgt_tgt = wgt_metis / np_rem
-            !
-            n = xq%n; lid_new = n
-            do j = 1, size(gid_sep)
-              gid = gid_sep(j); lid = g2lid(gid)
-              q => xq%get_quad(lid)
-              call q%set_flag(active=.true.)
-              if (q%get_flag(active=LDUM)) then
-                if (q%get_hlev(ih) == id) then
-                  call q%get_prop(weight=wgt_q)
-                  if (wgt_q > wgt_tgt) then
-                    ! number of parts
-                    np_full = max(2,nint(wgt_q/wgt_tgt))
-                    np_full = min(np_rem, np_full)
-                    np_rem = np_rem - np_full
-                    !
-                    call q%get_bb(child_bbi=bb)
-                    call get_mask(xid, q%gid, bb, mask)
-                    if (allocated(qweight)) deallocate(qweight)
-                    allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
-                    do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                      jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-                      if (mask(jc,jr) > 0) then
-                        qweight(jc,jr) = weight(ic,ir)
-                      end if
-                    end do; end do;
-                    !
-                    ! full grid METIS
-                    allocate(met)
-                    call met%init(qweight, np_full)
-                    call met%set_opts()
-                    call logmsg('***** Full METIS partitioning for GID '//ta([gid])// &
-                      ' into '//ta([np_full])//' parts *****')
-                    call met%recur()
-                    if (allocated(part)) deallocate(part)
-                    allocate(part,source=mask)
-                    call met%set_ids(part)
-                    call met%clean(); deallocate(met); met => null()
-                    !
-                    do ip = 1, np_full
-                      lid_new = lid_new + 1; gid_new = gid_new + 1
-                      q_new => xq%get_quad(lid_new)
-                      call bb_new%init()
-                      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-                        p = part(jc,jr)
-                        if (p == ip) then
-                         ! determine the new bounding box
-                          bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
-                          bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
-                          bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
-                          if (xid(ic,ir) /= q%gid) then
-                            call errmsg('quad_sub_grid_part: program error.')
-                          else
-                            xid(ic,ir) = gid_new
-                          end if
-                        end if 
-                      end do; end do
-                      !
-                      bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
-                      bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
-                      bbx%cs = cs_gid
-                      call bbo%set(child_bbi=bb_new, child_bbx=bbx)
-                      call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
-                      call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
-                      call get_mask(xid, gid_new, bb_new, mask)
-                      if (allocated(qweight)) deallocate(qweight)
-                      allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
-                      do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
-                        jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
-                        if (mask(jc,jr) > 0) then
-                          qweight(jc,jr) = weight(ic,ir)
-                        end if
-                      end do; end do;
-                      call q_new%calc_prop(mask=mask, weight=qweight)
-                      call q_new%get_prop(weight=wgt_q)
-                      wgt_metis = wgt_metis + wgt_q
-                      xq%n = lid_new
-                    end do !ip
-                    !
-                    call q%set_flag(active=.false.)
-                  end if
-                end if
-              end if
-            end do
-          end if
-        end if ! ih = nh
+        end do; end do
       end if
     end do
-    !
-    deallocate(hid, wgth)
-  end do
+    f = trim(f_gid_out)//'_ini_weight'
+    call writeflt(f, ini_weight, nc, nr, xll, yll, cs_gid, I4ZERO)
+    deallocate(ini_weight)
+  end if
+  
+  np_strt = xq%get_number_active()
+  call grid_load_imbalance(xid, xid_mv, weight, imbal, np_strt)
+  call logmsg('Start with load imbalance for '//ta([np_strt])//' parts: '//ta([imbal]))
   !
+  gid_new = gid_max_loc
+  !
+  ! fill and sort the weights
+  do lid = 1, xq%n
+    q => xq%get_quad(lid)
+    wgt_sort_lid(lid) = lid
+    if (q%get_flag(active=LDUM)) then
+      call q%get_prop(weight=wgt_q)
+      wgt_sort(lid) = wgt_q 
+    else
+      wgt_sort(lid) = R4ZERO
+    end if
+  end do
+  wgt_sort = -wgt_sort
+  call quicksort_r(wgt_sort, wgt_sort_lid, xq%n)
+  wgt_sort = -wgt_sort
+  i = nint(wgt_per *real(xq%n))
+  wgt_tgt = wgt_sort(i)
+  call logmsg('Target weight: '//ta([wgt_tgt]))
+  
+  n = xq%n; lid_new = n; nmet = 0; np_met = 0
+  do i = 1, n
+    lid = wgt_sort_lid(i)
+    q => xq%get_quad(lid)
+    if (q%get_flag(active=LDUM)) then
+      call q%get_prop(weight=wgt_q)
+      ! check
+      if (wgt_q /= wgt_sort(i)) then
+        call errmsg('Quad_grid_balancing: program error.')
+      end if
+      !
+      if (wgt_q > wgt_tgt) then
+        lmetis = .true.
+        np_full = nint(wgt_q/(wgt_fac*wgt_tgt))
+        np_full = max(2,np_full)
+      else
+        lmetis = .false.
+      end if
+      if (lmetis) then
+        ! number of parts
+        !
+        nmet = nmet + 1
+        np_met = np_met + np_full - 1
+        !
+        call q%get_bb(child_bbi=bb)
+        call get_mask(xid, q%gid, bb, mask)
+        if (allocated(qweight)) deallocate(qweight)
+        allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+        do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+          jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+          if (mask(jc,jr) > 0) then
+            xid_split(ic,ir) = np_full
+            qweight(jc,jr) = weight(ic,ir)
+          end if
+        end do; end do;
+        !
+        ! full grid METIS
+        allocate(met)
+        call met%init(qweight, np_full)
+        call met%set_opts()
+        call met%recur(verbose=.true.)
+        if (allocated(part)) deallocate(part)
+        allocate(part,source=mask)
+        call met%set_ids(part)
+        call met%clean(); deallocate(met); met => null()
+        !
+        do ip = 1, np_full
+          lid_new = lid_new + 1; gid_new = gid_new + 1
+          q_new => xq%get_quad(lid_new)
+          call bbi_new%init()
+          do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+            jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+            p = part(jc,jr)
+            if (p == ip) then
+             ! determine the new bounding box
+              bbi_new%ic0 = min(bbi_new%ic0,ic); bbi_new%ic1 = max(bbi_new%ic1,ic)
+              bbi_new%ir0 = min(bbi_new%ir0,ir); bbi_new%ir1 = max(bbi_new%ir1,ir)
+              bbi_new%ncol = bbi_new%ic1 - bbi_new%ic0 + 1;  bbi_new%nrow = bbi_new%ir1 - bbi_new%ir0 + 1
+              if (xid(ic,ir) /= q%gid) then
+                call errmsg('quad_sub_grid_part: program error.')
+              else
+                xid(ic,ir) = gid_new
+              end if
+            end if 
+          end do; end do
+          !
+          bbx%xll = xll + (bbi_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bbi_new%ir1)*cs_gid
+          bbx%xur = bbx%xll + bbi_new%ncol*cs_gid; bbx%yur = bbx%yll + bbi_new%nrow*cs_gid
+          bbx%cs = cs_gid
+          call bbo%set(child_bbi=bbi_new, child_bbx=bbx)
+          call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+          if (q%gid_prent > 0) then
+            call q_new%set(hlev=q%hlev, gid_prent=q%gid_prent, lid_prent=q%lid_prent)
+          else
+            call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
+          end if
+          call get_mask(xid, gid_new, bbi_new, mask)
+          if (allocated(qweight)) deallocate(qweight)
+          allocate(qweight(bbi_new%ncol,bbi_new%nrow)); qweight = I4ZERO
+          do ir = bbi_new%ir0, bbi_new%ir1; do ic = bbi_new%ic0, bbi_new%ic1
+            jr = ir - bbi_new%ir0 + 1; jc = ic - bbi_new%ic0 + 1
+            if (mask(jc,jr) > 0) then
+              qweight(jc,jr) = weight(ic,ir)
+            end if
+          end do; end do;
+          call q_new%calc_prop(mask=mask, weight=qweight)
+          g2lid(gid_new) = lid_new
+          xq%n = lid_new
+        end do !ip
+        !
+        call q%set_flag(active=.false.)
+      end if
+    end if
+  end do
+  ! 
+  call logmsg('Number of times METIS was called: '//ta([nmet]))
+  call logmsg('Number of new METIS parts:        '//ta([np_met]))
+  call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
+  call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal],'(f6.2)'))
+  !
+  np_diff = np-np_strt
+  call logmsg('Done, generated '//ta([np_diff])//' parts ('// &
+    ta([100.*real(np_diff,R4B)/real(np,R4B)],'(f7.2)')//' % increment)')
   !
   ! renumber
-  allocate(gids_new(xq%n)); gids_new = 0
+  allocate(gids_new(gid_max)); gids_new = 0
   n = 0
-  !
-  do j = 1, size(gid_sep)
-     gid = gid_sep(j)
-     do lid = 1, xq%n
-       q => xq%get_quad(lid)
-       if (q%get_flag(active=LDUM)) then
-         if (q%gid_prent == gid) then
-           n = n + 1
-           gids_new(q%gid) = n
-         end if
-       end if
-     end do
-  end do
-  !
   do lid = 1, xq%n
     q => xq%get_quad(lid)
     if (q%get_flag(active=LDUM)) then
@@ -2164,7 +3049,6 @@ subroutine quad_sub_grid_part()
     end if
   end do
   !
-  ! replace the global id
   do lid = 1, xq%n
     q => xq%get_quad(lid)
     if (q%get_flag(active=LDUM)) then
@@ -2174,78 +3058,829 @@ subroutine quad_sub_grid_part()
       do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
         jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
         if (mask(jc,jr) == 1) then
-          xid(ic,ir) = -gid
+          xid(ic,ir) = gid
         end if
       end do; end do
     end if
   end do
-  xid = abs(xid)
   !
-  ! write the new ids
-  call grid_load_imbalance(xid, xid_mv, weight, imbal, np, ximbal)
-  call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
-  !
-  call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
-  call hdrg_gid%write(f_gid_out)
-  if (lwriteximbal) then
-    f = trim(f_gid_out)//'_imbal'
-    call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
+  ! lumped METIS
+  allocate(met)
+  call met%init_lump(ids=xid, nparts=np_lump, verbose=.false., weight=weight)
+  if (luse_chaco) then ! chaco
+    allocate(chac)
+    call chac%init_from_metis(met)
+    call chac%run(f_exe)
+    call chac%set_metis(met)
+    call chac%clean(); deallocate(chac); chac => null()
+  else
+    call met%set_opts() !(niter_in=1000)
+    call met%recur()
+    !call met%kway()
   end if
   !
-  ! write the hierarchical grids
-  if (write_hiera) then
-    do ih = 1, nh
-      ! get the IDs
-      call get_unique(hmap(ih,:), hid)
-      nhid = size(hid)
+  allocate(gid2part(gid_max)); gid2part = 0
+  do i = 1, met%nvtxs
+    gid = met%idmapinv(i)
+    gid2part(gid) = met%part(i) + 1
+  end do
+  call met%clean(); deallocate(met); met => null()
+  !
+  do ir = 1, nr; do ic = 1, nc
+    gid = xid(ic,ir)
+    if (gid /= xid_mv) then
+      ipart = gid2part(gid)
+      xid(ic,ir) = ipart
+    end if
+  end do; end do
+  !
+  ! repair for disjoint partitions
+  call quad_repair_disjoint(xid, xid_mv, weight)
+  !
+  ! extra check
+  n_disjoint = quad_count_disjoint(xid, xid_mv)
+  call logmsg('# disjoint: '//ta([n_disjoint])//'/'//ta([np_lump]))
+  !
+  if (ldebug) then
+    call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
+    call hdrg_gid%write(trim(f_gid_out)//'_debug'//ta([np]))
+  end if
+  
+  if (lgidsep) then
+    !
+    ! first, renumber
+    do ir = 1, nr; do ic = 1, nc
+      gid = xid(ic,ir)
+      if (gid /= xid_mv) then
+        xid(ic,ir) = gid + np_tot
+      end if
+    end do; end do
+    !
+    ! repair for disjoint partitions
+    call quad_repair_disjoint(xid_sep, xid_mv, weight)
+    !
+    ! second, add the separate partitions
+    do i = 1, size(gid_sep)
+      gid = gid_sep(i); lid = g2lid(gid)
+      q => xq%get_quad(lid)
+      call q%get_bb(child_bbi=bb)
       !
-      if (allocated(i4w2d)) deallocate(i4w2d)
-      allocate(i4w2d(nc,nr)); i4w2d = 0
-      !
-      do i = 1, nhid
-        id = hid(i)
-        if (id == 0) cycle
-        do lid = 1, xq%n
-          q => xq%get_quad(lid)
-          if (q%get_flag(active=LDUM)) then
-            if (q%get_hlev(ih) == id) then
-              call q%get_bb(child_bbi=bb)
-              call get_mask(xid, q%gid, bb, mask)
-              do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
-                jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
-                if (mask(jc,jr) > 0) then
-                  i4w2d(ic,ir) = id
-                end if
-              end do; end do
-            end if
+      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+        if (mask_sep(ic,ir) == gid) then
+          if (xid_sep(ic,ir) == xid_mv) then
+            call errmsg('quad_sub_grid_part: program error.')
+          else
+            xid(ic,ir) = xid_sep(ic,ir)
           end if
-        end do
-      end do
-      !
-      fp = trim(sa(ih))//'_calc'
-      call writeflt(fp, i4w2d, nc, nr, xll, yll, cs_gid, 0)
+        end if
+      end do; end do
     end do
   end if
+  !
+  call grid_load_imbalance(xid, xid_mv, weight, imbal, np, wgt_max=wgt_max)
+  call logmsg('Overall load imbalance for '//ta([np])// &
+    ' parts: '//ta([imbal],'(f6.2)')//', max weight: '//ta([wgt_max]))
   
-  ! write the csv
-  !allocate(csv)
-  !call csv%init(file=f_out_csv, &
-  !    hdr_keys=['lid', 'gid', 'lid_prent', 'gid_prent', &
-  !      'xm', 'ym', 'area'],&
-  !    nr=xq%n, hdr_i_type=[i_i4, i_i4, i_i4, i_i4, &
-  !      i_r8, i_r8, i_r8,])
-  
-  ! clean-up
-  if (allocated(hmap)) deallocate(hmap)
-  if (allocated(hlev)) deallocate(hlev)
-  if (allocated(xid)) deallocate(xid)
-  if (allocated(i4w2d)) deallocate(i4w2d)
-  if (associated(hdrg_gid)) then
-    call hdrg_gid%clean(); deallocate(hdrg_gid); hdrg_gid => null()
+  call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
+  call hdrg_gid%write(trim(f_gid_out)//'_np'//ta([np]))
+  if (lwrite_ximbal) then
+    call grid_load_imbalance(xid, xid_mv, weight, imbal, np, ximbal)
+    f = trim(f_gid_out)//'_imbal_np'//ta([np])
+    call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
+  end if
+  if (ldebug) then
+    call hdrg_gid%replace_grid(xi4=xid_split, mvi4=0)
+    call hdrg_gid%write(trim(f_gid_out)//'_split_np'//ta([np]))
   end if
   !
+  ! clean up
+  call hdrg_gid%clean(); deallocate(hdrg); hdrg => null()
+  if (allocated(xid)) deallocate(xid)
+  if (allocated(xid_sep)) deallocate(xid_sep)
+  if (allocated(mask)) deallocate(mask)
+  if (allocated(mask_sep)) deallocate(mask_sep)
+  
   return
 end subroutine quad_sub_grid_part
+
+!subroutine quad_sub_grid_part()
+!! ******************************************************************************
+!!
+!!    SPECIFICATIONS:
+!! ------------------------------------------------------------------------------  
+!! -- local
+!  !
+!  logical, parameter :: lwriteximbal = .true.
+!  !
+!  type(tQuad), pointer :: q_new => null()
+!  type(tBb)  :: bbi_gid, bb_new
+!  type(tBbX) :: bbx_gid, bbx_hid, bbx_q
+!  type(tHdr), pointer :: hdrg_hid => null()
+!  type(tHdrHdr), pointer :: hdr => null()
+!  type(tCSV), pointer    :: csv => null()
+!  type(tMetis), pointer :: met => null()
+!  !
+!  logical :: lfound, lfirst, llast, lhiera, lgidsep, lok
+!  character(len=MXSLEN) :: f
+!  character(len=MXSLEN), dimension(:), allocatable :: sa
+!  integer(I4B) :: ngid, gid_max_loc, nh, ih, xidh_mv, weight_mv, id, nhid, j, n_old
+!  integer(I4B) :: np_rem, np, np_full, np_lump, np_lump_loc, ip, p, lid_new, gid_new, iact
+!  integer(I4B), dimension(:,:), allocatable :: mask, part, xidh, hmap
+!  integer(I4B), dimension(:,:), allocatable :: weight, qweight, lweight
+!  integer(I4B), dimension(:), allocatable :: lev_id, uplev_id, hid, hlev, gid_sep, gids_new
+!  real(R4B), dimension(:,:), allocatable :: ximbal
+!  real(R8B), dimension(:), allocatable :: wgth
+!  real(R8B) :: wgt, wgt_metis, wgt_q, xm, ym, wgt_tot, wgt_tgt, imbal
+!! ------------------------------------------------------------------------------
+!  !
+!  allocate(hdrg_gid)
+!  call hdrg_gid%read_full_grid(f_gid_in)
+!  call hdrg_gid%get_grid(xi4=xid, mvi4=xid_mv)
+!  nc =  size(xid,1); nr = size(xid,2)
+!  !
+!  ! read the weights
+!  if (len_trim(f_weight) > 0) then
+!    allocate(hdrg)
+!    call hdrg%read_full_grid(f_weight)
+!    call hdrg%get_grid(xi4=weight, mvi4=weight_mv)
+!    call hdrg%clean(); deallocate(hdrg); hdrg => null()
+!  else
+!    allocate(weight(nc,nr)); weight = 1
+!  end if
+!  !
+!  if (len_trim(gid_separate) > 0) then
+!    lgidsep = .true.
+!    call parse_line(s=gid_separate, i4a=gid_sep, token_in=',')
+!  else
+!    lgidsep = .false.
+!  end if
+!  !
+!  ! set bbi and bbx for gid
+!  bbi_gid%ic0 = 1;   bbi_gid%ic1 = nc
+!  bbi_gid%ir0 = 1;   bbi_gid%ir1 = nr
+!  bbi_gid%ncol = nc; bbi_gid%nrow = nr
+!  hdr => hdrg_gid%hdr; call hdr%get_bbx(bbx_gid)
+!  xll = bbx_gid%xll; yll = bbx_gid%yll; cs_gid = bbx_gid%cs
+!  call bbo%set(prent_bbi=bbi_gid, prent_bbx=bbx_gid)
+!  !
+!  ! determine the global ids and bounding box
+!  allocate(bb_gid(gid_max), gids(gid_max), g2lid(gid_max))
+!  gids = 0; g2lid = 0
+!  do gid = 1, gid_max
+!    bb => bb_gid(gid)
+!    call bb%init()
+!  end do
+!  do ir = 1, nr; do ic = 1, nc
+!    gid = xid(ic,ir)
+!    if (gid /= xid_mv) then
+!      gids(gid) = 1
+!      bb => bb_gid(gid)
+!      bb%ic0 = min(bb%ic0, ic); bb%ic1 = max(bb%ic1, ic)
+!      bb%ir0 = min(bb%ir0, ir); bb%ir1 = max(bb%ir1, ir)
+!      bb%ncol = bb%ic1 - bb%ic0 + 1; bb%nrow = bb%ir1 - bb%ir0 + 1
+!    end if
+!  end do; enddo
+!  !
+!  gid_max_loc = maxval(xid)
+!  nlid = sum(gids)
+!  if (nlid > gid_max) then
+!    call errmsg('Increase gid_max.')
+!  end if
+!  allocate(xq)
+!  call xq%init(nlid, gid_max)
+!  !
+!  lid = 0; wgt_tot = R8ZERO
+!  do gid = 1, gid_max
+!    if (gids(gid) == 1) then
+!      lid = lid + 1
+!      g2lid(gid) = lid
+!      q => xq%get_quad(lid)
+!      bb => bb_gid(gid) ! local bounding box
+!      bbx%xll = xll + (bb%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb%ir1)*cs_gid
+!      bbx%xur = bbx%xll + bb%ncol*cs_gid; bbx%yur = bbx%yll + bb%nrow*cs_gid
+!      bbx%cs = cs_gid
+!      call bbo%set(child_bbi=bb, child_bbx=bbx)
+!      call q%init(gid=gid, lid=lid, bbo=bbo)
+!      call get_mask(xid, gid, bb, mask)
+!      if (allocated(qweight)) deallocate(qweight)
+!      allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!        if (mask(jc,jr) > 0) then
+!          qweight(jc,jr) = weight(ic,ir)
+!        end if
+!      end do; end do;
+!      call q%calc_prop(mask=mask, weight=qweight)
+!      call q%get_prop(weight=wgt_q)
+!      wgt_tot = wgt_tot + wgt_q
+!    end if
+!  end do
+!  !
+!  ! create the hierarchy
+!  if (len_trim(f_hiera_in) > 0) then
+!    lhiera = .true.
+!    call parse_line(f_hiera_in, sa, token_in=',')
+!    nh = size(sa)
+!    allocate(hmap(nh,nlid), hlev(nh)); hmap = 0
+!  else
+!    lhiera = .false.
+!    nh = 1
+!    allocate(hmap(nh,nlid), hlev(nh)); hmap = 1
+!  end if
+!  !
+!  if (lhiera) then
+!    do ih = 1, nh
+!      allocate(hdrg_hid)
+!      call hdrg_hid%read_full_grid(sa(ih))
+!      call hdrg_hid%get_grid(xi4=xidh, mvi4=xidh_mv)
+!      hdr => hdrg_hid%hdr; call hdr%get_bbx(bbx_hid)
+!      !
+!      do lid = 1, xq%n
+!        q => xq%get_quad(lid)
+!        call q%get_prop(xm=xm, ym=ym)
+!        call get_icr(ic, ir, xm, ym, bbx_hid%xll, bbx_hid%yur, bbx_hid%cs)
+!        if ((ic > 0).and.(ir> 0)) then
+!          id = xidh(ic,ir)
+!          if (id /= xidh_mv) then
+!            hmap(ih,lid) = id
+!          end if
+!        else
+!          call errmsg('quad_sub_grid_part: could not sample point.')
+!        end if
+!      end do
+!      call hdrg_hid%clean(); deallocate(hdrg_hid); hdrg_hid => null()
+!    end do
+!    !
+!    ! check
+!    if (minval(hmap(1,:)) == 0) then
+!      call errmsg('quad_sub_grid_part: not all areas are classified.')
+!    end if
+!    !
+!  end if  
+!  !
+!  ! set the levels
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    call q%set(hlev=hmap(:,lid))
+!  end do
+!  !
+!  wgt_tgt = wgt_tot / npart
+!  np_rem = npart
+!  !area_tgt = area_tot / 5
+!  !
+!  do ih = 1, nh
+!    ! get the IDs
+!    call get_unique(hmap(ih,:), hid)
+!    nhid = size(hid)
+!    allocate(wgth(nhid)); wgth = R8ZERO
+!    !
+!    do i = 1, nhid
+!      id = hid(i)
+!      if (id == 0) cycle
+!      do lid = 1, xq%n
+!        q => xq%get_quad(lid)
+!        if (q%get_flag(active=LDUM)) then
+!          if (q%get_hlev(ih) == id) then
+!            call q%get_prop(weight=wgt_q)
+!            wgth(i) = wgth(i) + wgt_q
+!          end if
+!        end if
+!      end do
+!    end do
+!    !
+!    gid_new = gid_max_loc
+!    !
+!    ! check the target area
+!    do i = 1, nhid
+!      id = hid(i)
+!      if (wgth(i) == R8ZERO) cycle
+!      if (wgth(i) < wgt_tgt) then ! merge the quads for this level
+!        lid_new = xq%n + 1; gid_new = gid_new + 1
+!        call bb_new%init()
+!        ! merge the quads
+!        lfound = .false.; lfirst = .true.
+!        do lid = 1, xq%n
+!          q => xq%get_quad(lid)
+!          if (q%get_flag(active=LDUM)) then
+!            if (q%get_hlev(ih) == id) then
+!              lfound = .true.
+!              call q%set_flag(active=.false.)
+!              call q%get_bb(child_bbi=bb)
+!              ! change the id
+!              do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                if (xid(ic,ir) == q%gid) then
+!                  xid(ic,ir) = gid_new
+!                end if
+!              end do; end do
+!              !
+!              ! determine the new bounding box
+!              bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
+!              bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
+!              bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
+!              !
+!              if (lfirst) then
+!                hlev = 0; hlev(1:ih) = q%hlev(1:ih)
+!                lfirst = .false.
+!              end if
+!            end if
+!          end if
+!        end do
+!        if (lfound) then
+!          bbx%xll = xll + (bb%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb%ir1)*cs_gid
+!          bbx%xur = bbx%xll + bb%ncol*cs_gid; bbx%yur = bbx%yll + bb%nrow*cs_gid
+!          bbx%cs = cs_gid
+!          call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+!          !
+!          q_new => xq%get_quad(lid_new)
+!          call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+!          call q_new%set(hlev=hlev)
+!          call q_new%get_bb(child_bbi=bb)
+!          call get_mask(xid, q_new%gid, bb, mask)
+!          call q_new%calc_prop(mask=mask)
+!          xq%n = lid_new
+!        end if
+!      else
+!        llast = .false.
+!        if (ih == nh) then
+!          llast = .true.
+!        else
+!          llast = .true.
+!          do lid = 1, xq%n
+!            q => xq%get_quad(lid)
+!            if (q%get_flag(active=LDUM)) then
+!              if (q%get_hlev(ih) == id) then
+!                if (q%get_hlev(ih+1) /= 0) then
+!                  llast = .false.
+!                end if
+!              end if
+!            end if
+!          end do
+!        end if
+!        !
+!        if (llast) then
+!          ! set 0: count weight for seperate IDS subject to full METIS partitioning
+!          wgt_metis = R8ZERO
+!          if (lgidsep) then
+!            do j = 1, size(gid_sep)
+!              gid = gid_sep(j); lid = g2lid(gid)
+!              q => xq%get_quad(lid)
+!              if (q%get_flag(active=LDUM)) then
+!                if (q%get_hlev(ih) == id) then
+!                  call q%get_prop(weight=wgt_q)
+!                  if (wgt_q > wgt_tgt) then
+!                    wgt_metis = wgt_metis + wgt_q
+!                    call q%set_flag(active=.false.)
+!                  end if
+!                end if
+!              end if
+!            end do
+!          end if
+!          !
+!          ! step 1: apply full METIS for quads with weight > weight_fac*weight_tgt
+!          n = xq%n; lid_new = n
+!          do lid = 1, n
+!            q => xq%get_quad(lid)
+!            if (q%get_flag(active=LDUM)) then
+!              if (q%get_hlev(ih) == id) then
+!                call q%get_prop(weight=wgt_q)
+!                if (wgt_q > weight_fac*wgt_tgt) then
+!                  ! number of parts
+!                  np_full = nint(wgt_q/(weight_fac*wgt_tgt))
+!                  np_full = max(2,np_full)
+!                  call q%get_bb(child_bbi=bb)
+!                  call get_mask(xid, q%gid, bb, mask)
+!                  if (allocated(qweight)) deallocate(qweight)
+!                  allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!                  do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                    jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!                    if (mask(jc,jr) > 0) then
+!                      qweight(jc,jr) = weight(ic,ir)
+!                    end if
+!                  end do; end do;
+!                  !
+!                  ! full grid METIS
+!                  allocate(met)
+!                  call met%init(qweight, np_full)
+!                  call met%set_opts()
+!                  call met%recur(verbose=.true.)
+!                  if (allocated(part)) deallocate(part)
+!                  allocate(part,source=mask)
+!                  call met%set_ids(part)
+!                  call met%clean(); deallocate(met); met => null()
+!                  !
+!                  do ip = 1, np_full
+!                    lid_new = lid_new + 1; gid_new = gid_new + 1
+!                    q_new => xq%get_quad(lid_new)
+!                    call bb_new%init()
+!                    do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                      jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!                      p = part(jc,jr)
+!                      if (p == ip) then
+!                       ! determine the new bounding box
+!                        bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
+!                        bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
+!                        bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
+!                        if (xid(ic,ir) /= q%gid) then
+!                          call errmsg('quad_sub_grid_part: program error.')
+!                        else
+!                          xid(ic,ir) = gid_new
+!                        end if
+!                      end if 
+!                    end do; end do
+!                    !
+!                    bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
+!                    bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
+!                    bbx%cs = cs_gid
+!                    call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+!                    call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+!                    call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
+!                    call get_mask(xid, gid_new, bb_new, mask)
+!                    if (allocated(qweight)) deallocate(qweight)
+!                    allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
+!                    do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
+!                      jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
+!                      if (mask(jc,jr) > 0) then
+!                        qweight(jc,jr) = weight(ic,ir)
+!                      end if
+!                    end do; end do;
+!                    call q_new%calc_prop(mask=mask, weight=qweight)
+!                    xq%n = lid_new
+!                  end do !ip
+!                  !
+!                  call q%set_flag(active=.false.)
+!                end if
+!              end if
+!            end if
+!          end do
+!          !
+!          ! set: apply lumped METIS to the other
+!          n_old = xq%n
+!          wgt = wgth(i) - wgt_metis
+!          if (wgt < R8ZERO) then 
+!            call errmsg('quad_sub_grid_part: program error')
+!          end if
+!          np_lump = 0
+!          if (wgt > wgt_tgt) then
+!            np_lump = max(2,nint(wgt/wgt_tgt))
+!            !
+!            ! determine the bounding box and work array
+!            call bb_new%init(); lfirst = .true.
+!            do iact = 1, 2
+!              do lid = 1, xq%n
+!                q => xq%get_quad(lid)
+!                if (q%get_flag(active=LDUM)) then
+!                  if (q%get_hlev(ih) == id) then
+!                    call q%get_bb(child_bbi=bb)
+!                    if (iact == 1) then
+!                      bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
+!                      bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
+!                      bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1
+!                      bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
+!                    else
+!                      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                        if (xid(ic,ir) == q%gid) then
+!                          jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
+!                          i4w2d(jc,jr) = q%lid
+!                          lweight(jc,jr) = weight(ic,ir)
+!                        end if
+!                      end do; end do
+!                    end if
+!                    if (lfirst) then
+!                      hlev = 0; hlev(1:ih) = q%hlev(1:ih)
+!                      lfirst = .false.
+!                    end if
+!                  end if
+!                end if
+!              end do
+!              if (iact == 1) then
+!                if (allocated(i4w2d)) deallocate(i4w2d)
+!                if (allocated(lweight)) deallocate(lweight)
+!                allocate(i4w2d(bb_new%ncol,bb_new%nrow))
+!                allocate(lweight(bb_new%ncol,bb_new%nrow))
+!                i4w2d = I4ZERO; lweight = I4ZERO
+!              end if
+!            end do
+!            !
+!            np_lump_loc = np_lump
+!            do while(.true.)
+!              if (associated(met)) then
+!                call met%clean(); deallocate(met); met => null()
+!              end if
+!              allocate(met)
+!              call logmsg('**** Lumped METIS for '//ta([np_lump_loc])//' parts *****')
+!              call met%init_lump(i4w2d, np_lump_loc, verbose=.true., weight=lweight)
+!              call logmsg('**** Number of graph vertices: '//ta([met%nvtxs]))
+!              call met%set_opts()
+!              call met%recur(ok=lok)
+!              !call met%set_opts(contig_in=0)
+!              !call met%kway(ok=lok)
+!              if (.not.lok) then
+!                call logmsg('**** Warning, lumped METIS failed for '//ta([np_lump_loc])//' parts *****')
+!                np_lump_loc = np_lump_loc - 1
+!              else
+!                exit
+!              end if
+!            end do
+!            if (allocated(part)) deallocate(part)
+!            !
+!            do ip = 1, np_lump_loc
+!              lid_new = lid_new + 1; gid_new = gid_new + 1
+!              q_new => xq%get_quad(lid_new)
+!              call bb_new%init()
+!              do j = 1, met%nvtxs
+!                if (met%part(j) == ip - 1) then
+!                  lid = met%idmapinv(j)
+!                  q => xq%get_quad(lid)
+!                  if ((q%get_hlev(ih) /= id).or.(.not.q%get_flag(active=LDUM))) then
+!                    call errmsg('quad_sub_grid_part: program error')
+!                  end if
+!                  call q%set_flag(active=.false.)
+!                  call q%get_bb(child_bbi=bb)
+!                  bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
+!                  bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
+!                  bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1
+!                  bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
+!                  !
+!                  do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                    if (xid(ic,ir) == q%gid) then
+!                      xid(ic,ir) = gid_new
+!                    end if
+!                  end do; end do
+!                end if
+!              end do
+!              bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
+!              bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
+!              bbx%cs = cs_gid
+!              call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+!              call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo) !TODO: set parent LIST
+!              call q_new%set(hlev=hlev) 
+!              call q_new%get_bb(child_bbi=bb)
+!              call get_mask(xid, q_new%gid, bb, mask)
+!              call q_new%calc_prop(mask=mask)
+!              xq%n = lid_new
+!            end do
+!            call met%clean(); deallocate(met); met => null()
+!          end if
+!          !
+!          ! check
+!          do lid = 1, n_old
+!            q => xq%get_quad(lid)
+!            if (q%get_flag(active=LDUM)) then
+!              call errmsg('quad_sub_grid_part: program error.')
+!            end if
+!          end do
+!          !
+!          n = xq%get_number_active()
+!          call logmsg('# unique IDs BEFORE splitting: '//ta([n]))
+!          !
+!          ! split in to non-unique
+!          n = xq%n; lid_new = n
+!          do lid = 1, n
+!            q => xq%get_quad(lid)
+!            if (q%get_flag(active=LDUM)) then
+!              call q%get_bb(child_bbi=bb)
+!              call get_mask(xid, q%gid, bb, i4w2d)
+!              call calc_unique(i4w2d, 5, regun, regbb, nreg, idum, 0., 0., 0.)
+!              if (nreg > 1) then
+!                do ireg = 1, nreg
+!                  lid_new = lid_new + 1; gid_new = gid_new + 1
+!                  q_new => xq%get_quad(lid_new)
+!                  call bb_new%init()
+!                  do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                    jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!                    if (regun(jc,jr) == ireg) then
+!                      bb_new%ic0 = min(bb_new%ic0,bb%ic0); bb_new%ic1 = max(bb_new%ic1,bb%ic1)
+!                      bb_new%ir0 = min(bb_new%ir0,bb%ir0); bb_new%ir1 = max(bb_new%ir1,bb%ir1)
+!                      bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1
+!                      bb_new%nrow = bb_new%ir1 - bb_new%ir0 + 1
+!                      xid(ic,ir) = gid_new
+!                    end if
+!                  end do; end do
+!                  bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
+!                  bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
+!                  bbx%cs = cs_gid
+!                  call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+!                  call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+!                  call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid) 
+!                  call q_new%get_bb(child_bbi=bb)
+!                  call get_mask(xid, q_new%gid, bb, mask)
+!                  call q_new%calc_prop(mask=mask)
+!                  xq%n = lid_new
+!                end do
+!                call q%set_flag(active=.false.)
+!              end if
+!            end if
+!          end do
+!          !
+!          n = xq%get_number_active()
+!          call logmsg('# unique IDs AFTER splitting: '//ta([n]))
+!          !
+!          if (lgidsep) then
+!            n = xq%get_number_active()
+!            np_rem = npart - n
+!            wgt_tgt = wgt_metis / np_rem
+!            !
+!            n = xq%n; lid_new = n
+!            do j = 1, size(gid_sep)
+!              gid = gid_sep(j); lid = g2lid(gid)
+!              q => xq%get_quad(lid)
+!              call q%set_flag(active=.true.)
+!              if (q%get_flag(active=LDUM)) then
+!                if (q%get_hlev(ih) == id) then
+!                  call q%get_prop(weight=wgt_q)
+!                  if (wgt_q > wgt_tgt) then
+!                    ! number of parts
+!                    np_full = max(2,nint(wgt_q/wgt_tgt))
+!                    np_full = min(np_rem, np_full)
+!                    np_rem = np_rem - np_full
+!                    !
+!                    call q%get_bb(child_bbi=bb)
+!                    call get_mask(xid, q%gid, bb, mask)
+!                    if (allocated(qweight)) deallocate(qweight)
+!                    allocate(qweight(bb%ncol,bb%nrow)); qweight = I4ZERO
+!                    do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                      jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!                      if (mask(jc,jr) > 0) then
+!                        qweight(jc,jr) = weight(ic,ir)
+!                      end if
+!                    end do; end do;
+!                    !
+!                    ! full grid METIS
+!                    allocate(met)
+!                    call met%init(qweight, np_full)
+!                    call met%set_opts()
+!                    call logmsg('***** Full METIS partitioning for GID '//ta([gid])// &
+!                      ' into '//ta([np_full])//' parts *****')
+!                    call met%recur()
+!                    if (allocated(part)) deallocate(part)
+!                    allocate(part,source=mask)
+!                    call met%set_ids(part)
+!                    call met%clean(); deallocate(met); met => null()
+!                    !
+!                    do ip = 1, np_full
+!                      lid_new = lid_new + 1; gid_new = gid_new + 1
+!                      q_new => xq%get_quad(lid_new)
+!                      call bb_new%init()
+!                      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!                        p = part(jc,jr)
+!                        if (p == ip) then
+!                         ! determine the new bounding box
+!                          bb_new%ic0 = min(bb_new%ic0,ic); bb_new%ic1 = max(bb_new%ic1,ic)
+!                          bb_new%ir0 = min(bb_new%ir0,ir); bb_new%ir1 = max(bb_new%ir1,ir)
+!                          bb_new%ncol = bb_new%ic1 - bb_new%ic0 + 1;  bb_new%nrow = bb_new%ir1 - bb%ir0 + 1
+!                          if (xid(ic,ir) /= q%gid) then
+!                            call errmsg('quad_sub_grid_part: program error.')
+!                          else
+!                            xid(ic,ir) = gid_new
+!                          end if
+!                        end if 
+!                      end do; end do
+!                      !
+!                      bbx%xll = xll + (bb_new%ic0-1)*cs_gid; bbx%yll = yll + (nr-bb_new%ir1)*cs_gid
+!                      bbx%xur = bbx%xll + bb_new%ncol*cs_gid; bbx%yur = bbx%yll + bb_new%nrow*cs_gid
+!                      bbx%cs = cs_gid
+!                      call bbo%set(child_bbi=bb_new, child_bbx=bbx)
+!                      call q_new%init(gid=gid_new, lid=lid_new, bbo=bbo)
+!                      call q_new%set(hlev=q%hlev, gid_prent=q%gid, lid_prent=q%lid)
+!                      call get_mask(xid, gid_new, bb_new, mask)
+!                      if (allocated(qweight)) deallocate(qweight)
+!                      allocate(qweight(bb_new%ncol,bb_new%nrow)); qweight = I4ZERO
+!                      do ir = bb_new%ir0, bb_new%ir1; do ic = bb_new%ic0, bb_new%ic1
+!                        jr = ir - bb_new%ir0 + 1; jc = ic - bb_new%ic0 + 1
+!                        if (mask(jc,jr) > 0) then
+!                          qweight(jc,jr) = weight(ic,ir)
+!                        end if
+!                      end do; end do;
+!                      call q_new%calc_prop(mask=mask, weight=qweight)
+!                      call q_new%get_prop(weight=wgt_q)
+!                      wgt_metis = wgt_metis + wgt_q
+!                      xq%n = lid_new
+!                    end do !ip
+!                    !
+!                    call q%set_flag(active=.false.)
+!                  end if
+!                end if
+!              end if
+!            end do
+!          end if
+!        end if ! ih = nh
+!      end if
+!    end do
+!    !
+!    deallocate(hid, wgth)
+!  end do
+!  !
+!  !
+!  ! renumber
+!  allocate(gids_new(xq%n)); gids_new = 0
+!  n = 0
+!  !
+!  do j = 1, size(gid_sep)
+!     gid = gid_sep(j)
+!     do lid = 1, xq%n
+!       q => xq%get_quad(lid)
+!       if (q%get_flag(active=LDUM)) then
+!         if (q%gid_prent == gid) then
+!           n = n + 1
+!           gids_new(q%gid) = n
+!         end if
+!       end if
+!     end do
+!  end do
+!  !
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    if (q%get_flag(active=LDUM)) then
+!      if (gids_new(q%gid) == 0) then
+!        n = n + 1
+!        gids_new(q%gid) = n
+!      end if
+!    end if
+!  end do
+!  !
+!  ! replace the global id
+!  do lid = 1, xq%n
+!    q => xq%get_quad(lid)
+!    if (q%get_flag(active=LDUM)) then
+!      gid = gids_new(q%gid)
+!      call q%get_bb(child_bbi=bb)
+!      call get_mask(xid, q%gid, bb, mask)
+!      do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!        jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!        if (mask(jc,jr) == 1) then
+!          xid(ic,ir) = -gid
+!        end if
+!      end do; end do
+!    end if
+!  end do
+!  xid = abs(xid)
+!  !
+!  ! write the new ids
+!  call grid_load_imbalance(xid, xid_mv, weight, imbal, np, ximbal)
+!  call logmsg('Overall load imbalance for '//ta([np])//' parts: '//ta([imbal]))
+!  !
+!  call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
+!  call hdrg_gid%write(f_gid_out)
+!  if (lwriteximbal) then
+!    f = trim(f_gid_out)//'_imbal'
+!    call writeflt(f, ximbal, nc, nr, xll, yll, cs_gid, R4ZERO)
+!  end if
+!  !
+!  ! write the hierarchical grids
+!  if (write_hiera) then
+!    do ih = 1, nh
+!      ! get the IDs
+!      call get_unique(hmap(ih,:), hid)
+!      nhid = size(hid)
+!      !
+!      if (allocated(i4w2d)) deallocate(i4w2d)
+!      allocate(i4w2d(nc,nr)); i4w2d = 0
+!      !
+!      do i = 1, nhid
+!        id = hid(i)
+!        if (id == 0) cycle
+!        do lid = 1, xq%n
+!          q => xq%get_quad(lid)
+!          if (q%get_flag(active=LDUM)) then
+!            if (q%get_hlev(ih) == id) then
+!              call q%get_bb(child_bbi=bb)
+!              call get_mask(xid, q%gid, bb, mask)
+!              do ir = bb%ir0, bb%ir1; do ic = bb%ic0, bb%ic1
+!                jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
+!                if (mask(jc,jr) > 0) then
+!                  i4w2d(ic,ir) = id
+!                end if
+!              end do; end do
+!            end if
+!          end if
+!        end do
+!      end do
+!      !
+!      fp = trim(sa(ih))//'_calc'
+!      call writeflt(fp, i4w2d, nc, nr, xll, yll, cs_gid, 0)
+!    end do
+!  end if
+!  
+!  ! write the csv
+!  !allocate(csv)
+!  !call csv%init(file=f_out_csv, &
+!  !    hdr_keys=['lid', 'gid', 'lid_prent', 'gid_prent', &
+!  !      'xm', 'ym', 'area'],&
+!  !    nr=xq%n, hdr_i_type=[i_i4, i_i4, i_i4, i_i4, &
+!  !      i_r8, i_r8, i_r8,])
+!  
+!  ! clean-up
+!  if (allocated(hmap)) deallocate(hmap)
+!  if (allocated(hlev)) deallocate(hlev)
+!  if (allocated(xid)) deallocate(xid)
+!  if (allocated(i4w2d)) deallocate(i4w2d)
+!  if (associated(hdrg_gid)) then
+!    call hdrg_gid%clean(); deallocate(hdrg_gid); hdrg_gid => null()
+!  end if
+!  !
+!  return
+!end subroutine quad_sub_grid_part
 
 subroutine quad_csv_add_field()
 ! ******************************************************************************
@@ -2400,7 +4035,7 @@ subroutine get_mask(xid, id, bb, mask)
 ! -- arguments
   integer(I4B), dimension(:,:), intent(in) :: xid
   integer(I4B), intent(in) :: id
-  type(tBB) :: bb
+  type(tBB), intent(in) :: bb
   integer(I4B), dimension(:,:), allocatable, intent(inout) :: mask
 ! -- local
   integer(I4B) :: jr, jc, n
@@ -4545,6 +6180,9 @@ program quad2d
   end if
   if (run_opt == 11) then
     call quad_sub_grid_part()
+  end if
+  if (run_opt == 21) then
+    call quad_check_sub_grid_part()
   end if
   if (run_opt == 12) then
     call quad_full_grid_part()
