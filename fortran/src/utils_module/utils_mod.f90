@@ -357,9 +357,10 @@ module utilsmod
     integer(I4B) :: ncol = I4ZERO
     integer(I4B) :: nrow = I4ZERO
   contains
-    procedure :: init  => tBb_init
-    procedure :: read  => tBb_read
-    procedure :: write => tBb_write
+    procedure :: init    => tBb_init
+    procedure :: read    => tBb_read
+    procedure :: write   => tBb_write
+    procedure :: defined => tBb_defined
   end type tBb
   
   type tBbObj
@@ -1194,6 +1195,25 @@ module utilsmod
     !
     return
   end subroutine tBb_write
+  
+  function tBb_defined(this) result(defined)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tBb) :: this
+    logical :: defined ! result
+    !
+! ------------------------------------------------------------------------------
+    if ((this%ncol > 0).and.(this%nrow > 0)) then
+      defined = .true.
+    else
+      defined = .false.
+    end if
+    !
+    return
+  end function tBb_defined
   
   subroutine tBbX_init(this)
 ! ******************************************************************************
@@ -5340,17 +5360,20 @@ module utilsmod
     !
     do ir = bb%ir0-1, bb%ir1+1
       do ic = bb%ic0-1, bb%ic1+1
-        if (xi4(ic,ir) == id_tgt) then
-           do j = 2, ns
-            jc = ic+st(1,j); jc = max(jc,1); jc = min(jc,nc)
-            jr = ir+st(2,j); jr = max(jr,1); jr = min(jr,nr)
-            id = xi4(jc,jr)
-            if (id /= mvi4) then
-              if (id /= id_tgt) then
-                i4wrk(id - min_id + 1) = 1
+        if (valid_icr(ic, ir, nc, nr)) then
+          if (xi4(ic,ir) == id_tgt) then
+            do j = 2, ns
+              jc = ic+st(1,j); jr = ir+st(2,j)
+              if (valid_icr(jc, jr, nc, nr)) then
+                id = xi4(jc,jr)
+                if (id /= mvi4) then
+                  if (id /= id_tgt) then
+                    i4wrk(id - min_id + 1) = 1
+                  end if
+                end if
               end if
-            end if
-           end do
+            end do
+          end if
         end if
       end do
     end do
