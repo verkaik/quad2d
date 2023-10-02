@@ -432,15 +432,16 @@ subroutine quad_settings()
     !=========!
     call ini%get_val(sect, 'f_in_idf', cv=f_in_idf)
     call ini%get_val(sect, 'mv', r4v=r4mv)
-  case('merge_csv')
+  end select
+  !
+  if (sect(1:9) == 'merge_csv') then
     !=========!
     run_opt = 16
     !=========!
     call ini%get_val(sect, 'f_in_csv_pref', cv=f_in_csv_pref)
     call ini%get_val(sect, 'f_in_csv_post', cv=f_in_csv_post)
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
-  end select
-  !
+  end if
   if (sect(1:13) == 'csv_add_field') then
     !=========!
     run_opt = 14
