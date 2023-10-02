@@ -1,11 +1,15 @@
 program create_hdr_tiles
   ! modules
-  use utilsmod, only: MXSLEN, I4B, R4B, logmsg, errmsg, ta, open_file, tBB, tBBX
+  use utilsmod, only: MXSLEN, I4B, R4B, R8B, logmsg, errmsg, ta, open_file, tBB, tBBX
   use hdrModule, only: tHdr, tHdrHdr, i_flt, i_env, writeflt
   use ieee_arithmetic, only: ieee_is_nan
   !
   implicit none
   !
+  integer(I4B), parameter :: mvi4 = -99999
+  real(R4B),    parameter :: mvr4 = -99999.
+  real(R8B),    parameter :: mvr8 = -99999.
+  
 ! -- locals
   type(tBb) :: bbi
   type(tBbx) :: bbx
@@ -88,6 +92,13 @@ program create_hdr_tiles
             hdrg%dat%xi4(ic,ir) = hdrg%hdr%mvi4
           end if
         end do; end do
+        ! replace missing value
+        do ir = 1, size(hdrg%dat%xi4,2); do ic = 1, size(hdrg%dat%xi4,1)
+          if (hdrg%dat%xi4(ic,ir) == hdrg%hdr%mvi4) then
+            hdrg%dat%xi4(ic,ir) = mvi4
+          end if
+        end do; end do
+        hdrg%hdr%mvi4 = mvi4
       end if
       if (allocated(hdrg%dat%xr4)) then
         ok = .true.
@@ -96,6 +107,13 @@ program create_hdr_tiles
             hdrg%dat%xr4(ic,ir) = hdrg%hdr%mvr4
           end if
         end do; end do
+        ! replace missing value
+        do ir = 1, size(hdrg%dat%xr4,2); do ic = 1, size(hdrg%dat%xr4,1)
+          if (hdrg%dat%xr4(ic,ir) == hdrg%hdr%mvr4) then
+            hdrg%dat%xr4(ic,ir) = mvr4
+          end if
+        end do; end do
+        hdrg%hdr%mvr4 = mvr4
       end if
       if (allocated(hdrg%dat%xr8)) then
         ok = .true.
@@ -104,6 +122,13 @@ program create_hdr_tiles
             hdrg%dat%xr8(ic,ir) = hdrg%hdr%mvr8
           end if
         end do; end do
+        ! replace missing value
+        do ir = 1, size(hdrg%dat%xr8,2); do ic = 1, size(hdrg%dat%xr8,1)
+          if (hdrg%dat%xr8(ic,ir) == hdrg%hdr%mvr8) then
+            hdrg%dat%xr8(ic,ir) = mvr8
+          end if
+        end do; end do
+        hdrg%hdr%mvr8 = mvr8
       end if
       if (.not.ok) then
         call errmsg('Unsupported file type.')
