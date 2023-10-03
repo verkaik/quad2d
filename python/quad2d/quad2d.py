@@ -751,9 +751,8 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
                         v = s
                         fname = Path(v)
                         if not fname.is_file():
-                           log_error(f'Invalid key value for {key} in {module}: {v}')
-                        else:
-                            d[key] = (i_bin, fname)
+                           log.info(f'Invalid key value for {key} in {module}: {v}')
+                        d[key] = (i_bin, fname)
                     else:
                         d[key] = get_dat_tuple(d_mod_csv, d_map[key])
                 else:
