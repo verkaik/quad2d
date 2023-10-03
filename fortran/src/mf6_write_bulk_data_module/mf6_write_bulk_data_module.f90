@@ -285,6 +285,9 @@ contains
       csv%nr = csv%nr + 1
       ir_csv = csv%nr
     end if
+    if (ir_csv > csv%nr_max) then
+      call errmsg('tMf6Wbd_write_array: Increase NR_MAX_CSV')
+    end if
     !
     call csv%set_val(ic=1, ir=ir_csv, cv=trim(id)) ! id
     call csv%set_val(ic=2, ir=ir_csv, i8v=int(n,I8B)) ! nr
@@ -695,6 +698,9 @@ contains
       ir_csv = csv%nr
     end if
     !
+    if (ir_csv > csv%nr_max) then
+      call errmsg('tMf6Wbd_write_list: Increase NR_MAX_CSV')
+    end if
     call csv%set_val(ic= 1, ir=ir_csv, cv=trim(id)) ! id
     call csv%set_val(ic= 2, ir=ir_csv, i8v=int(n,I8B)) ! nr
     !
