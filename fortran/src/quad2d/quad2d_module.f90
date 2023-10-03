@@ -10525,7 +10525,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuad_grid_gen
   
-  subroutine tQuad_grid_init(this, f_csv_dat, id_pref)
+  subroutine tQuad_grid_init(this, f_csv_dat, id_pref, nr_max)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -10534,6 +10534,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     class(tQuad) :: this
     character(len=*), intent(in), optional :: f_csv_dat
     character(len=*), intent(in), optional :: id_pref
+    integer(I4B), intent(in), optional :: nr_max
     ! -- local
     character(len=MXSLEN), parameter :: debug_d = &
       'f:\models\lhm\LHM-Flex\pre-processing\debug_read\'
@@ -10571,7 +10572,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     !
     f_binpos = trim(strip_ext(f_csv_dat_loc))//'.binpos'
     allocate(disu%wbd); wbd => disu%wbd
-    call wbd%read_csv(f_csv_dat_loc, nr_max=MAX_NR_CSV)
+    if (present(nr_max)) then
+      call wbd%read_csv(f_csv_dat_loc, nr_max=nr_max)
+    else
+      call wbd%read_csv(f_csv_dat_loc, nr_max=MAX_NR_CSV)
+    end if
     wbd%f_binpos = f_binpos
     !
     ! read the grid data

@@ -5049,7 +5049,7 @@ subroutine quad_mf6_data_write_merge()
   integer(I4B), dimension(:), allocatable ::  nodesa, nodesa_offset
   integer(I4B) :: im, im0, im1, nim, nlid, idat, i, j, k, ilm, nodes_sum
   integer(I4B) :: nodes, nodes_im, n, m, ndat_q, ndat, ic, ir, nc
-  integer(I4B) :: i_out_file_type, iu
+  integer(I4B) :: i_out_file_type, iu, nr_max
   !
   real(R8B), dimension(:), allocatable :: qr8a, r8a
   real(R8B), dimension(:,:), allocatable :: qr8x, r8x
@@ -5113,6 +5113,7 @@ subroutine quad_mf6_data_write_merge()
     end do
     !
     ! read the disu
+    nr_max = 9 + 13*nlid + xq%dat_mods%n_uni_map
     call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f_csv_dat)
     do j = 1, nlid
       lid = lid_arr(j)
@@ -5121,7 +5122,9 @@ subroutine quad_mf6_data_write_merge()
         call errmsg('quad_mf6_data_write_merge: inactive quad.')
       end if
       id_pref = '_'//ta([lid_arr(j)])
-      call q%grid_init(f_csv_dat, id_pref)
+      call logmsg('Initializing grid for lid '//ta([lid_arr(j)])// &
+        ' ('//ta([j])//'/'//ta([nlid])//')...')
+      call q%grid_init(f_csv_dat, id_pref, nr_max)
     end do
     !
     ! set the wbd
@@ -5149,6 +5152,7 @@ subroutine quad_mf6_data_write_merge()
         call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm)
         idat = xq%dat_mods%uni_map_ir(ilm, i)
         if (idat > 0) then
+          !
           call q%dat_mod%get_dat(idat, dmdat)
           if (id /= dmdat%id) then
             call errmsg('quad_mf6_data_write_merge: program error.')
@@ -5229,7 +5233,7 @@ subroutine quad_mf6_data_write_merge()
             end do
           end if
           ndat = ndat + ndat_q
-        end if
+        end if !idat
       end do
       !
       ! write the data
