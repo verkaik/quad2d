@@ -65,7 +65,6 @@ contains
     character(len=*), intent(in), optional :: f_binpos
     logical, intent(in), optional :: reuse
     ! -- local
-    integer(I4B), parameter :: NR_MAX = 10000
     logical :: lex, reuse_loc
     integer(I4B) :: iu
     type(tCSV), pointer :: csv => null()
@@ -82,7 +81,7 @@ contains
     allocate(this%csv); csv => this%csv
     !
     if (reuse_loc) then
-      call this%read_csv(f_csv, nr_max=NR_MAX)
+      call this%read_csv(f_csv, nr_max=MAX_NR_CSV)
       if (present(f_binpos)) then
         this%use_binpos = .true.
         this%f_binpos = f_binpos
@@ -286,7 +285,7 @@ contains
       ir_csv = csv%nr
     end if
     if (ir_csv > csv%nr_max) then
-      call errmsg('tMf6Wbd_write_array: Increase NR_MAX_CSV')
+      call errmsg('tMf6Wbd_write_array: Increase MAX_NR_CSV')
     end if
     !
     call csv%set_val(ic=1, ir=ir_csv, cv=trim(id)) ! id
@@ -699,7 +698,7 @@ contains
     end if
     !
     if (ir_csv > csv%nr_max) then
-      call errmsg('tMf6Wbd_write_list: Increase NR_MAX_CSV')
+      call errmsg('tMf6Wbd_write_list: Increase MAX_NR_CSV')
     end if
     call csv%set_val(ic= 1, ir=ir_csv, cv=trim(id)) ! id
     call csv%set_val(ic= 2, ir=ir_csv, i8v=int(n,I8B)) ! nr
