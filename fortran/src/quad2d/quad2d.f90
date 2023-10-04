@@ -5,7 +5,7 @@ module main_module
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
-    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors
+    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors, replace_token
   use vrt_module, only: tVrt, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -58,7 +58,7 @@ module main_module
   character(len=MXSLEN) :: chd_lid
   character(len=MXSLEN) :: f_hiera_in, f_hiera_field, f_weight
   character(len=MXSLEN) :: gid_exclude, gid_separate, gid_first_num
-  character(len=MXSLEN) :: csv_field
+  character(len=MXSLEN) :: csv_field, csv_fill_field
   character(len=MXSLEN) :: f_in_idf
   character(len=MXSLEN) :: d_log
   character(len=MXSLEN) :: f_in_flt, f_in_vrt_1, f_in_vrt_2, f_out_vrt, post_fix
@@ -449,6 +449,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
     call ini%get_val(sect, 'csv_field', cv=csv_field)
+    call ini%get_val(sect, 'csv_fill_field', cv=csv_fill_field, cv_def='')
     call ini%get_val(sect, 'n_csv_val', i4v =n_csv_val, i4v_def=1)
     allocate(csv_val(n_csv_val)); csv_val = ''
     if (n_csv_val > 1) then
@@ -3915,9 +3916,18 @@ subroutine quad_csv_add_field()
 ! -- local
   type(tCSV), pointer :: csv => null()
 ! -- local
+  logical :: lfill
+  character(len=MXSLEN) :: s
   character(len=MXSLEN), dimension(:), allocatable :: hdr, hdr_add, val_add
+  character(len=MXSLEN), dimension(:), allocatable :: cfill
   integer(I4B) :: nc, nc_add, nc_max, ir, ic, jc, jc0
 ! ------------------------------------------------------------------------------
+  if (len_trim(csv_fill_field) > 0) then
+    lfill = .true.
+  else
+    lfill = .false.
+  end if
+  !
   allocate(csv)
   call csv%read_hdr(f_in_csv, hdr)
   nc = size(hdr)
@@ -3927,6 +3937,11 @@ subroutine quad_csv_add_field()
   nc_max = nc + nc_add
   !
   call csv%read(f_in_csv, nc_max=nc_max)
+  !
+  ! get the fill columns
+  if (lfill) then
+    call csv%get_column(key=csv_fill_field, ca=cfill)
+  end if
   !
   ! add the new data
   call csv%add_hdr(hdr_add)
@@ -3957,17 +3972,25 @@ subroutine quad_csv_add_field()
     do ir = ir0, ir1
       do jc = 1, nc_add
         ic = nc + jc
-        call csv%set_val(ic=ic, ir=ir, cv=val_add(jc+jc0))
+        if (lfill) then
+          s = replace_token(val_add(jc+jc0),'$',cfill(ir))
+        else
+          s = val_add(jc+jc0)
+        end if
+        call csv%set_val(ic=ic, ir=ir, cv=trim(s))
       end do
     end do
     !
   end do
   !
   csv%file = trim(f_out_csv); call csv%write()
+  !
+  ! clean up
   call csv%clean(); deallocate(csv); csv => null()
   if (allocated(hdr)) deallocate(hdr)
   if (allocated(hdr_add)) deallocate(hdr_add)
   if (allocated(val_add)) deallocate(val_add)
+  if (allocated(cfill)) deallocate(cfill)
   !
   return
 end subroutine quad_csv_add_field

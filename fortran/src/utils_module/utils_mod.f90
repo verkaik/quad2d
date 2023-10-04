@@ -6150,18 +6150,26 @@ module utilsmod
     return
   end function ta_r8
   
-  function ta_c(arr, add_quotes, sep_in) result(s)
+  function ta_c(arr, add_quotes, sep_in, trim_sep) result(s)
 ! ******************************************************************************
     ! -- arguments
     character(len=*), dimension(:), intent(in) :: arr
     logical, intent(in), optional :: add_quotes
     character(len=1), intent(in), optional :: sep_in
+    logical, intent(in), optional :: trim_sep
     character(len=:), allocatable :: s
     ! -- locals
+    logical :: ts
     integer(I4B) :: i
     character(len=1) :: q, sep
     character(len=MXSLENLONG) :: w
 ! ------------------------------------------------------------------------------
+    if (present(trim_sep)) then
+      ts = trim_sep
+    else
+      ts = .false.
+    end if
+    !
     if (present(add_quotes)) then
       q = '"'
     else
@@ -6177,7 +6185,11 @@ module utilsmod
     s = trim(q)//trim(adjustl(w))//trim(q)
     do i = 2, size(arr)
       w = arr(i)
-      s = s//sep//trim(q)//trim(adjustl(w))//trim(q)
+      if (ts) then
+        s = s//trim(sep)//trim(q)//trim(adjustl(w))//trim(q)
+      else
+        s = s//sep//trim(q)//trim(adjustl(w))//trim(q)
+      end if
     end do
     !
     return
@@ -9899,6 +9911,36 @@ end subroutine addboundary_r
     return
   end function strip_ext
 
+  function replace_token(s_in, token, val) result(s_out)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    character(*), intent(in) :: s_in
+    character(len=1) :: token
+    character(len=*) :: val
+    character(len(s_in)) :: s_out
+    ! -- local
+    character(len=MXSLEN), dimension(:), allocatable :: sa1, sa2
+    integer(I4B) :: i, j, n, m
+! ------------------------------------------------------------------------------
+    call split_str(s_in, token, sa1)
+    n = size(sa1); m = 2*n-1
+    allocate(sa2(m))
+    do i = 1, n-1
+      j = 1 + (i-1)*2
+      sa2(j)   = sa1(i)
+      sa2(j+1) = val
+    end do
+    sa2(m) = sa1(n)
+    s_out = ta([sa2], trim_sep=.true.)
+    !
+    deallocate(sa1, sa2)
+    !
+    return
+  end function replace_token
+  
   function get_ext(s_in) result(s_out)
 ! ******************************************************************************
 !
