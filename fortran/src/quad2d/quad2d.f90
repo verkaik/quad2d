@@ -411,7 +411,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_gid_mask',  cv=f_gid_mask)
     call ini%get_val(sect, 'f_weight',    cv=f_weight, cv_def='')
     call ini%get_val(sect, 'npart',       i4v=npart)
-    call ini%get_val(sect, 'f_gid_out',   cv=f_gid_out)
+    call ini%get_val(sect, 'f_gid_out',   cv=f_gid_out, cv_def='')
     call ini%get_val(sect, 'gid_exclude', cv=gid_exclude, cv_def='')
     call ini%get_val(sect, 'gid_separate', cv=gid_separate, cv_def='')
   case('grid_balancing')
@@ -709,12 +709,20 @@ subroutine quad_full_grid_part()
 ! ------------------------------------------------------------------------------  
 ! -- local
   type(tMetis), pointer :: met => null()
-  integer(I4B) :: weight_mv, id, npart_loc, npart_tot, ip, ip_offset, nid
+  character(len=MXSLEN) :: f_out
   real(R4B) :: wtot, wloc
   real(R8B) :: imbal
   integer(I4B), dimension(:), allocatable :: ids
   integer(I4B), dimension(:,:), allocatable :: weight, weight_loc
+  integer(I4B) :: weight_mv, id, npart_loc, npart_tot, ip, ip_offset, nid
+  integer(I4B) :: n_disjoint
 ! ------------------------------------------------------------------------------
+  !
+  if (len_trim(f_gid_out) > 0) then
+    f_out= f_gid_out
+  else
+    f_out = trim(strip_ext(f_gid_mask))//'_fp_np'//ta([npart],'(i3.3)')
+  end if
   !
   allocate(hdrg_gid)
   call hdrg_gid%read_full_grid(f_gid_mask)
@@ -771,6 +779,7 @@ subroutine quad_full_grid_part()
     ip_offset = 0
     nid = size(ids)
     do i = 1, nid + 1
+      if (allocated(weight_loc)) deallocate(weight_loc)
       allocate(weight_loc(nc,nr)); weight_loc = 0
       wloc = 0
       if (i <= nid) then
@@ -810,15 +819,30 @@ subroutine quad_full_grid_part()
             xid(ic,ir) = -ip
           end if
         end do; end do
-        ip_offset = ip_offset + npart_loc
-        npart_tot = max(0, npart_tot - npart_loc)
         deallocate(weight_loc)
+      else
+        if (i <= nid) then
+          call logmsg('***** No METIS partitioning for ID='//ta([id])//' (1 parts) *****')
+        else
+          call logmsg('***** No METIS partitioning for remainder (1 parts) *****')
+        end if
+        do ir = 1, nr; do ic = 1, nc
+          ip = weight_loc(ic,ir)
+          if (ip > 0) then
+            xid(ic,ir) = -(ip_offset+1)
+          end if
+        end do; end do
       end if
+      ip_offset = ip_offset + npart_loc
+      npart_tot = max(0, npart_tot - npart_loc)
     end do
     !
     xid = abs(xid)
+    n_disjoint = quad_count_disjoint(xid, xid_mv)
+    call logmsg('# disjoint: '//ta([n_disjoint]))
     call grid_load_imbalance(xid, xid_mv, weight, imbal, npart_loc)
     call logmsg('Overall load imbalance for '//ta([npart_loc])//' parts: '//ta([imbal]))
+    !f_out = trim(f_out)//'_kib'//adjustl(ta([1000.d0*imbal],'(f10.0)'))
   else
     allocate(met)
     call met%init(weight, npart)
@@ -827,10 +851,10 @@ subroutine quad_full_grid_part()
     call met%set_ids(xid)
     call met%clean(); deallocate(met); met => null()
   end if
-  
+  !
   ! write the new ids
   call hdrg_gid%replace_grid(xi4=xid, mvi4=xid_mv)
-  call hdrg_gid%write(f_gid_out)
+  call hdrg_gid%write(f_out)
   
   ! clean-up
   if (allocated(xid)) deallocate(xid)
