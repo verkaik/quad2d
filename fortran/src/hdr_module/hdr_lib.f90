@@ -2124,7 +2124,7 @@ subroutine hdrhdr_clean(this)
     case(i_uscl_sumcdr)
       call logmsg('---> Upscaling: sum conductance <---')
     case default
-      call logmsg('Not supported upscaling method.')
+      call errmsg('Not supported upscaling method.')
     end select
     !
     src_hdr => this%hdr; dat => this%dat
