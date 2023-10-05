@@ -81,7 +81,7 @@ module mf6_post_module
     allocate(this%kper_map(this%kper_end))
     this%kper_map = 0
     iper = 0
-    do i = 1, this%kper_beg, this%kper_end
+    do i = this%kper_beg, this%kper_end
       iper = iper + 1
       this%kper_map(i) = iper
     end do
@@ -129,7 +129,7 @@ module mf6_post_module
           if (ios /= 0) then
             call errmsg('mf6_post_read_ulasav: could not read data.')
           end if
-          this%kper_map(iper) = -abs(this%kper_map(iper))
+          this%kper_map(kper_in) = -abs(this%kper_map(kper_in))
         end if
       end if
       p = p + R8B*this%nodes
