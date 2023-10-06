@@ -1453,7 +1453,7 @@ module vrt_module
         end do; end do
       end do
       call hdrg_merge%replace_grid(xr4=xmr4, mvr4=mvr4)
-      if (.true.) then
+      if (.false.) then
         fp = 'e:\data\lhm-flex\runs\200m_var_05_002\simulations\run_output\merged'
         call writeflt(fp, xmr4, ncm, nrm, bbxm%xll, bbxm%yll, bbxm%cs, mvr4)
       end if
@@ -1463,7 +1463,7 @@ module vrt_module
       if ((size(xr4,1) /= nc).or.(size(xr4,2) /= nr)) then
         call errmsg('tVrt_read_extent: setting xr4.')
       end if
-      if (.true.) then
+      if (.false.) then
         fp = 'e:\data\lhm-flex\runs\200m_var_05_002\simulations\run_output\debug'
         call writeflt(fp, xr4, nc, nr, bbx%xll, bbx%yll, bbx%cs, mvr4)
       end if
