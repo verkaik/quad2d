@@ -4728,7 +4728,7 @@ subroutine quad_mf6_xch_write_merge()
   call csv%get_column(key='lid', i4a=im_arr)
   nim = size(im_arr)
   !
-  allocate(lid2im_arr(xq%n)); lid2im_arr = 0
+  allocate(lid2im_arr(gid_max)); lid2im_arr = 0
   !
   ! first, flag the quads and set im
   do im = 1, nim
