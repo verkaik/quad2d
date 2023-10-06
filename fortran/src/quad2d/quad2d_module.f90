@@ -5258,7 +5258,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end if
     !
     ! determine the number of active quads
-    q_nact_delta = int(real(this%n_act,R4B)/perc_intv,I4B)
+    q_nact_delta = max(1,int(real(this%n_act,R4B)/perc_intv,I4B))
     q_nact = 0
     !
     ! first, process all "from" interface nodes
