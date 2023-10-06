@@ -302,8 +302,9 @@ module utilsmod
   
   interface get_bb_extent
     module procedure :: get_bb_extent_r8
+    module procedure :: get_bb_extent_tbb
   end interface get_bb_extent
-  private :: get_bb_extent_r8
+  private :: get_bb_extent_r8, get_bb_extent_tbb
   
   interface writetofile
     module procedure :: writetofile_i4
@@ -5285,6 +5286,27 @@ module utilsmod
     return
   end subroutine get_r4grid_bb
   
+  subroutine get_bb_extent_tbb(bbx1, bbi1, bbx2, ic0, ic1, ir0, ir1)
+! ******************************************************************************
+    ! -- arguments
+    type(tBbx), intent(in) :: bbx1
+    type(tBb),  intent(in) :: bbi1
+    type(tBbx), intent(in) :: bbx2
+    integer(I4B), intent(out) :: ic0, ic1, ir0, ir1
+    ! -- locals
+    real(R8B) :: xll, yll, cs
+    integer(I4B) :: ncol, nrow
+    real(R8B) :: xmin, xmax, ymin, ymax
+! ------------------------------------------------------------------------------
+    xll = bbx1%xll; yll = bbx1%yll; cs = bbx1%cs; ncol = bbi1%ncol; nrow = bbi1%nrow
+    xmin = bbx1%xll; xmax = bbx2%xur; ymin = bbx2%yll; ymax = bbx2%yur
+    !
+    call get_bb_extent_r8(xll, yll, cs, ncol, nrow, xmin, xmax, ymin, ymax, &
+    ic0, ic1, ir0, ir1)
+    
+    return
+  end subroutine get_bb_extent_tbb
+    
   subroutine get_bb_extent_r8(xll, yll, cs, ncol, nrow, xmin, xmax, ymin, ymax, &
     ic0, ic1, ir0, ir1)
 ! ******************************************************************************
