@@ -1,11 +1,12 @@
 module vrt_module
   ! modules
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, &
-    i_i1, i_i2, i_i4, i_r4, i_r8, I4ZERO, R4ZERO, R8ZERO, R8HALF, &
+    i_i1, i_i2, i_i4, i_i8, i_r4, i_r8, I4ZERO, R4ZERO, R8ZERO, R8HALF, &
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
-    ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr
-  use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata
+    ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
+    get_bb_extent
+  use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata, writeflt
 
   implicit none
   
@@ -1319,13 +1320,13 @@ module vrt_module
     !
     ! -- local
     type(tVrtTile), pointer :: tile => null()
-    type(tHdr), pointer :: hdrg => null()
+    type(tHdr), pointer :: hdrg => null(), hdrg_merge => null()
     type(tHdrHdr), pointer :: hdr => null()
-    type(tBbx) :: tbbx
+    type(tBbx) :: bbxt, bbxm
     character(len=MXSLEN) :: f, fp
-    logical :: loverlap, clean_tile_loc
+    logical :: loverlap, clean_tile_loc, setx
     integer(I4B), dimension(:), allocatable :: act_tile
-    integer(I4B) :: itile, n_act, i_act, nc, nr, ir, ic, jr, jc, n
+    integer(I4B) :: itile, n_act, i_act, nc, nr, ir, ic, jr, jc, n, ncm, nrm
     integer(I4B), dimension(:,:), allocatable :: xtile_loc
     real(R8B), dimension(:), allocatable :: act_tile_cs
     real(R8B) :: x, y
@@ -1333,6 +1334,13 @@ module vrt_module
     integer(I4B) :: i4v
     real(R4B)    :: r4v
     real(R8B)    :: r8v
+    !
+    integer(I1B), dimension(:,:), allocatable :: xmi1
+    integer(I2B), dimension(:,:), allocatable :: xmi2
+    integer(I4B), dimension(:,:), allocatable :: xmi4
+    integer(I8B), dimension(:,:), allocatable :: xmi8
+    real(R4B),    dimension(:,:), allocatable :: xmr4
+    real(R8B),    dimension(:,:), allocatable :: xmr8
  ! ------------------------------------------------------------------------------
     !
     if (present(clean_tile)) then
@@ -1346,23 +1354,49 @@ module vrt_module
     n_act = size(act_tile)
     !
     ! read the tiles
+    call bbxm%init()
     do i_act = 1, n_act
-      itile = act_tile(i_act) 
-      tile => this%tiles(itile); hdrg => tile%hdrg;
-      call hdrg%read_extent(tile%file_name, bbx, i_uscl, i_dscl)
-      hdr => hdrg%hdr; call hdr%get_bbx(tbbx)
-      tile%dst_bbx = tbbx
+      itile = act_tile(i_act); tile => this%tiles(itile); hdrg => tile%hdrg
+      bbxt = bbx; bbxt%cs = tile%src_bbx%cs
+      call hdrg%read_extent(tile%file_name, bbxt, i_uscl, i_dscl)
+      hdr => tile%hdrg%hdr
+      tile%dst_bbx%xll = hdr%xllr8; tile%dst_bbx%xur = hdr%xurr8
+      tile%dst_bbx%yll = hdr%yllr8; tile%dst_bbx%yur = hdr%yurr8
+      tile%dst_bbx%cs  = hdr%csr8
+      if (i_act == 1) then
+        bbxm = bbxt
+      else
+        bbxm%xll = min(bbxm%xll, bbxt%xll)
+        bbxm%xur = max(bbxm%xur, bbxt%xur)
+        bbxm%yll = min(bbxm%yll, bbxt%yll)
+        bbxm%yur = max(bbxm%yur, bbxt%yur)
+      end if
       if (.false.) then ! debug
-        fp = trim(hdrg%fp)//'_scaled'
+        fp = 'e:\data\lhm-flex\runs\200m_var_05_002\simulations\run_output\debug_tile'//trim(ta([i_act]))
         call hdrg%write(fp)
       end if
     end do
     !
+    ! determine the merge grid
+    allocate(hdrg_merge)
+    call hdrg_merge%init()
+    allocate(hdrg_merge%hdr); hdr => hdrg_merge%hdr
+    itile = act_tile(1); tile => this%tiles(itile); hdrg => tile%hdrg
+    call hdrg%hdr%copy(hdr)
+    allocate(hdrg_merge%hdr_src)
+    call hdrg%hdr%copy(hdrg_merge%hdr_src)
+    ncm = (bbxm%xur - bbxm%xll)/tile%src_bbx%cs
+    nrm = (bbxm%yur - bbxm%yll)/tile%src_bbx%cs
+    hdr%ncol = ncm; hdr%nrow = nrm
+    hdr%xllr4 = real(bbxm%xll,R4B); hdr%xllr8 = bbxm%xll
+    hdr%xurr4 = real(bbxm%xur,R4B); hdr%xurr8 = bbxm%xur
+    hdr%yllr4 = real(bbxm%yll,R4B); hdr%yllr8 = bbxm%yll
+    hdr%yurr4 = real(bbxm%yur,R4B); hdr%yurr8 = bbxm%yur
+    hdrg_merge%i_data_type = hdr%i_data_type
+    !
     ! append the grids tiles
     nc = (bbx%xur - bbx%xll)/bbx%cs
     nr = (bbx%yur - bbx%yll)/bbx%cs
-    !
-    allocate(xtile_loc(nc,nr)); xtile_loc = 0
     !
     if (present(xi1)) then
       call errmsg('tVrt_read_extent: xi1 not yet supported')
@@ -1371,82 +1405,135 @@ module vrt_module
       call errmsg('tVrt_read_extent: xi2 not yet supported')
     end if
     if (present(xi4)) then
-      if (allocated(xi4)) deallocate(xi4)
-      allocate(xi4(nc,nr))
-      itile = act_tile(1); hdrg => tile%hdrg; hdr => hdrg%hdr
-      mvi4 = hdr%mvi4; xi4 = mvi4 
+      allocate(xmi4(ncm,nrm))
+      mvi4 = hdrg_merge%hdr%mvi4; xmi4 = mvi4
       do i_act = 1, n_act
         itile = act_tile(i_act); tile => this%tiles(itile)
         hdrg => tile%hdrg; hdr => hdrg%hdr
-        call tile%get(dst_bbx=tbbx)
+        call tile%get(dst_bbx=bbxt)
         do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
           i4v = hdrg%dat%xi4(ic,ir)
-          if (i4v /= hdr%mvi4) then
-            call get_xy(x, y, ic, ir, tbbx%xll, tbbx%yur, tbbx%cs)
-            call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-            if (valid_icr(jc, jr, nc, nr)) then
-              if (xi4(jc,jr) == mvi4) then
-                xi4(jc,jr) = i4v
-                xtile_loc(jc,jr) = itile
-              end if
+          call get_xy(  x,  y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
+          call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
+          if (valid_icr(jc, jr, ncm, nrm)) then
+            if (xmi4(jc,jr) == mvi4) then
+              xmi4(jc,jr) = i4v
             end if
           end if
         end do; end do
       end do
+      call hdrg_merge%replace_grid(xi4=xmi4, mvi4=mvi4)
+      if (allocated(xi4)) deallocate(xi4)
+      call hdrg_merge%scale(bbx%cs, i_uscl, i_dscl)
+      allocate(xi4, source=hdrg_merge%dat%xi4)
+      if ((size(xi4,1) /= nc).or.(size(xi4,2) /= nr)) then
+        call errmsg('tVrt_read_extent: setting xi4.')
+      end if
+      deallocate(xmi4)
     end if
     if (present(xi8)) then
       call errmsg('tVrt_read_extent: xi8 not yet supported')
     end if
     if (present(xr4)) then
-      if (allocated(xr4)) deallocate(xr4)
-      allocate(xr4(nc,nr))
-      itile = act_tile(1); hdrg => tile%hdrg; hdr => hdrg%hdr
-      mvr4 = hdr%mvr4; xr4 = mvr4 
+      allocate(xmr4(ncm,nrm))
+      mvr4 = hdrg_merge%hdr%mvr4; xmr4 = mvr4
       do i_act = 1, n_act
         itile = act_tile(i_act); tile => this%tiles(itile)
         hdrg => tile%hdrg; hdr => hdrg%hdr
-        call tile%get(dst_bbx=tbbx)
+        call tile%get(dst_bbx=bbxt)
         do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
           r4v = hdrg%dat%xr4(ic,ir)
-          if (r4v /= hdr%mvr4) then
-            call get_xy(x, y, ic, ir, tbbx%xll, tbbx%yur, tbbx%cs)
-            call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-            if (valid_icr(jc, jr, nc, nr)) then
-              if (xr4(jc,jr) == mvr4) then
-                xr4(jc,jr) = r4v
-                xtile_loc(jc,jr) = itile
-              end if
+          call get_xy(  x,  y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
+          call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
+          if (valid_icr(jc, jr, ncm, nrm)) then
+            if (xmr4(jc,jr) == mvr4) then
+              xmr4(jc,jr) = r4v
             end if
           end if
         end do; end do
       end do
+      call hdrg_merge%replace_grid(xr4=xmr4, mvr4=mvr4)
+      if (.true.) then
+        fp = 'e:\data\lhm-flex\runs\200m_var_05_002\simulations\run_output\merged'
+        call writeflt(fp, xmr4, ncm, nrm, bbxm%xll, bbxm%yll, bbxm%cs, mvr4)
+      end if
+      if (allocated(xr4)) deallocate(xr4)
+      call hdrg_merge%scale(bbx%cs, i_uscl, i_dscl)
+      allocate(xr4, source=hdrg_merge%dat%xr4)
+      if ((size(xr4,1) /= nc).or.(size(xr4,2) /= nr)) then
+        call errmsg('tVrt_read_extent: setting xr4.')
+      end if
+      if (.true.) then
+        fp = 'e:\data\lhm-flex\runs\200m_var_05_002\simulations\run_output\debug'
+        call writeflt(fp, xr4, nc, nr, bbx%xll, bbx%yll, bbx%cs, mvr4)
+      end if
+      deallocate(xmr4)
     end if
     if (present(xr8)) then
-      if (allocated(xr8)) deallocate(xr8)
-      allocate(xr8(nc,nr))
-      itile = act_tile(1); hdrg => tile%hdrg; hdr => hdrg%hdr
-      mvr8 = hdr%mvr8; xr8 = mvr8 
+      allocate(xmr8(ncm,nrm))
+      mvr8 = hdrg_merge%hdr%mvr8; xmr8 = mvr8
       do i_act = 1, n_act
         itile = act_tile(i_act); tile => this%tiles(itile)
         hdrg => tile%hdrg; hdr => hdrg%hdr
-        call tile%get(dst_bbx=tbbx)
+        call tile%get(dst_bbx=bbxt)
         do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
           r8v = hdrg%dat%xr8(ic,ir)
-          if (r8v /= hdr%mvr8) then
-            call get_xy(x, y, ic, ir, tbbx%xll, tbbx%yur, tbbx%cs)
-            call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-            if (valid_icr(jc, jr, nc, nr)) then
-              if (xr8(jc,jr) == mvr8) then
-                xr8(jc,jr) = r8v
-                xtile_loc(jc,jr) = itile
-              end if
+          call get_xy(  x,  y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
+          call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
+          if (valid_icr(jc, jr, ncm, nrm)) then
+            if (xmr8(jc,jr) == mvr8) then
+              xmr8(jc,jr) = r8v
             end if
           end if
         end do; end do
       end do
+      call hdrg_merge%replace_grid(xr8=xmr8, mvr8=mvr8)
+      if (allocated(xr8)) deallocate(xr8)
+      call hdrg_merge%scale(bbx%cs, i_uscl, i_dscl)
+      allocate(xr8, source=hdrg_merge%dat%xr8)
+      if ((size(xr8,1) /= nc).or.(size(xr8,2) /= nr)) then
+        call errmsg('tVrt_read_extent: setting xr8.')
+      end if
+      deallocate(xmr8)
     end if
     !
     if (present(xtile)) then
+      !itile = act_tile(1); hdrg => tile%hdrg; hdr => hdrg%hdr
+      !mvr4 = hdr%mvr4; xr4 = mvr4 
+      !do i_act = 1, n_act
+      !  itile = act_tile(i_act); tile => this%tiles(itile)
+      !  hdrg => tile%hdrg; hdr => hdrg%hdr
+      !  call tile%get(dst_bbx=bbxt)
+      !  do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
+      !    r4v = hdrg%dat%xr4(ic,ir)
+      !    if (r4v /= hdr%mvr4) then
+      !      call get_xy(x, y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
+      !      call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
+      !      if (valid_icr(jc, jr, nc, nr)) then
+      !        if (xr4(jc,jr) == mvr4) then
+      !          xr4(jc,jr) = r4v
+      !          xtile_loc(jc,jr) = itile
+      !        end if
+      !      end if
+      !    end if
+      !  end do; end do
+      !end do
+      if (bbxm%cs /= bbx%cs) then
+        call errmsg('tVrt_read_extent: xtile could not be determined.')
+      end if
+      allocate(xtile_loc(nc,nr)); xtile_loc = 0
+      do i_act = 1, n_act
+        itile = act_tile(i_act); tile => this%tiles(itile)
+        hdrg => tile%hdrg; hdr => hdrg%hdr
+        call tile%get(dst_bbx=bbxt)
+        do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
+          call get_xy(  x,  y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
+          call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
+          if (valid_icr(jc, jr, nc, nr)) then
+            xtile_loc(jc,jr) = itile
+          end if 
+        end do; end do
+      end do
       if (allocated(xtile)) deallocate(xtile)
       allocate(xtile, source=xtile_loc)
     end if
@@ -1470,7 +1557,6 @@ module vrt_module
     end if
     !
     ! clean up
-    deallocate(xtile_loc)
     if (clean_tile_loc) then
       do i_act = 1, n_act
         itile = act_tile(i_act) 
@@ -1480,6 +1566,10 @@ module vrt_module
       end do
     end if
     deallocate(act_tile, act_tile_cs)
+    if (associated(hdrg_merge)) then
+      call hdrg_merge%clean(); deallocate(hdrg_merge); hdrg_merge => null()
+    end if
+    if (allocated(xtile_loc)) deallocate(xtile_loc)
     !
     return
   end subroutine tVrt_read_extent

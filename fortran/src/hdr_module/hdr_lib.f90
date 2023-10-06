@@ -100,6 +100,7 @@ module hdrModule
     procedure :: hdrhdr_read_ehdr, hdrhdr_read_envi
     procedure :: clip    => hdrhdr_clip
     procedure :: get_bbx => hdrhdr_get_bbx
+    procedure :: copy   => hdrhdr_copy
     !procedure :: write => hdrhdr_write
   end type thdrHdr
   
@@ -191,6 +192,7 @@ module hdrModule
     !procedure :: hdr_read_block_i4_r8
     !
     procedure :: read_extent       => hdr_read_extent
+    procedure :: scale             => hdr_scale
     procedure :: read_clip_grid    => hdr_read_clip_grid
     procedure :: read_full_grid    => hdr_read_full_grid
     procedure :: up_scale          => hdr_up_scale
@@ -1001,6 +1003,58 @@ subroutine hdrhdr_clean(this)
     !
     return
   end subroutine hdrhdr_clip
+  
+  subroutine hdrhdr_copy(this, tgt)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(thdrHdr) :: this
+    type(thdrHdr), pointer, intent(inout) :: tgt
+    !
+    ! -- local
+! ------------------------------------------------------------------------------
+   !
+    tgt%i_file_type      = this%i_file_type
+    tgt%i_data_type      = this%i_data_type
+    tgt%ncol             = this%ncol
+    tgt%nrow             = this%nrow
+    tgt%nbits            = this%nbits
+    tgt%pixeltype        = this%pixeltype
+    tgt%i_uscl_type      = this%i_uscl_type
+    tgt%i_dscl_type      = this%i_dscl_type
+    tgt%xllr4            = this%xllr4
+    tgt%xurr4            = this%xurr4
+    tgt%yllr4            = this%yllr4 
+    tgt%yurr4            = this%yurr4 
+    tgt%csr4             = this%csr4
+    tgt%xllr8            = this%xllr8
+    tgt%xurr8            = this%xurr8
+    tgt%yllr8            = this%yllr8
+    tgt%yurr8            = this%yurr8
+    tgt%csr8             = this%csr8
+    tgt%lmvi1            = this%lmvi1
+    tgt%lmvi2            = this%lmvi2
+    tgt%lmvi4            = this%lmvi4
+    tgt%lmvi8            = this%lmvi8
+    tgt%lmvr4            = this%lmvr4
+    tgt%lmvr8            = this%lmvr8
+    tgt%mvi1             = this%mvi1
+    tgt%mvi2             = this%mvi2
+    tgt%mvi4             = this%mvi4
+    tgt%mvi8             = this%mvi8
+    tgt%mvr4             = this%mvr4
+    tgt%mvr8             = this%mvr8
+    tgt%l_read_full_grid = this%l_read_full_grid
+    tgt%ic0              = this%ic0
+    tgt%ic1              = this%ic1
+    tgt%ir0              = this%ir0
+    tgt%ir1              = this%ir1
+    tgt%f_bin            = this%f_bin
+    !
+    return
+  end subroutine hdrhdr_copy
   
 ! ==============================================================================
 ! ==============================================================================
@@ -2071,25 +2125,50 @@ subroutine hdrhdr_clean(this)
     else
       ids = i_dscl_nointp
     end if
-    if (dst_bbx%cs == src_hdr%csr8) then ! no scaling
+    !
+    ! up- or downscaling
+    call this%scale(dst_bbx%cs, ius, ids)
+    !
+    return
+  end subroutine hdr_read_extent
+  !
+  subroutine hdr_scale(this, dst_cs, ius, ids)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(thdr) :: this
+    real(R8B), intent(in)    :: dst_cs
+    integer(I4B), intent(in) :: ius
+    integer(I4B), intent(in) :: ids
+    ! -- local
+    type(thdrHdr), pointer :: src_hdr
+! ------------------------------------------------------------------------------
+    src_hdr => this%hdr_src
+    if (.not. associated(src_hdr)) then
+      call errmsg('hdr_scale: program error.')
+    end if
+    
+    if (dst_cs == src_hdr%csr8) then ! no scaling
       call logmsg('---> No scaling applied <---')
-    else if (dst_bbx%cs > src_hdr%csr8) then ! upscale
-      call this%up_scale(ius, dst_bbx%cs)
+    else if (dst_cs > src_hdr%csr8) then ! upscale
+      call this%up_scale(ius, dst_cs)
     else ! downscaling
       select case(ids)
       case(i_dscl_nointp)
-        call this%down_scale_nointp(ids, dst_bbx%cs)
+        call this%down_scale_nointp(ids, dst_cs)
       case(i_dscl_sample_scale)
-        call this%down_scale_nointp(ids, dst_bbx%cs, correct_for_area=.true.)
+        call this%down_scale_nointp(ids, dst_cs, correct_for_area=.true.)
       case(i_dscl_intp)
-        call this%down_scale_intp(ids, dst_bbx%cs)
+        call this%down_scale_intp(ids, dst_cs)
       case(i_dscl_nodata)
-        call errmsg('hdr_read_extent: invalid downscaling option.')
+        call errmsg('hdr_read_scale: invalid downscaling option.')
       end select
     end if
     !
     return
-  end subroutine hdr_read_extent
+  end subroutine hdr_scale
   
   subroutine hdr_up_scale(this, i_uscl, dst_cs)
 ! ******************************************************************************
