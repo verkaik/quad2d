@@ -51,7 +51,7 @@ module main_module
   character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_in_csv_merge, f_out_csv, f_part_csv
   character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post
   character(len=MXSLEN) :: f_mod_def_inp, f_lay_mod_csv, fp
-  character(len=MXSLEN) :: d_in, uuid_in
+  character(len=MXSLEN) :: d_in, uuid_in, uuid_out
   character(len=MXSLEN) :: f_gid_in, f_gid_out, f_gid_mask
   character(len=MXSLEN) :: mod_root_dir, xch_root_dir, mod_sub_dir_fields, xch_id_field
   character(len=MXSLEN) :: sel_field, sel_val, sel_npart, sel_nodes
@@ -163,6 +163,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'cs_max',   r8v=cs_max)
     call ini%get_val(sect, 'gid_mv',   i4v=mvxid, i4v_def=0)
     call ini%get_val(sect, 'use_uuid', l4v=luse_uuid, l4v_def=.false.)
+    call ini%get_val(sect, 'uuid_out', cv=uuid_out, cv_def='quad2d')
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv, cv_def='')
   case('balance')
     !=========!
@@ -4270,7 +4271,7 @@ subroutine quad_init()
   ! first, determine the interior & exterior boundaries of each quad (ids!)
   allocate(xq)
   call xq%init(nlid, gid_max, dir=d_out)
-  call xq%generate_uuid(luse_uuid)
+  call xq%generate_uuid(luse_uuid, uuid_out)
   !
   allocate(l2gid(gid_max))
   lid = 0; g2lid = 0

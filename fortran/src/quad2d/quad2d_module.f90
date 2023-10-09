@@ -3598,7 +3598,7 @@ module quad2dModule
     return
   end function tQuads_get_props_ptr
   
-  subroutine tQuads_generate_uuid(this, luse_uuid)
+  subroutine tQuads_generate_uuid(this, luse_uuid, uuid_out)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -3607,13 +3607,15 @@ module quad2dModule
     use uuid_module
     ! -- dummy
     class(tQuads) :: this
-    logical :: luse_uuid
+    logical, intent(in) :: luse_uuid
+    character(len=*), intent(in) :: uuid_out
     ! -- local
 ! ------------------------------------------------------------------------------
+    this%uuid = trim(uuid_out)
+    !
+    ! overwrite if case a unique uuid is being generated
     if (luse_uuid) then
       this%uuid = generate_uuid(version=1)
-    else
-      this%uuid = 'quad2d'
     end if
     !
     return
