@@ -8545,10 +8545,10 @@ subroutine get_unique_i4(x, xu)
   integer(I4B), dimension(:), intent(in) :: x
   integer(I4B), dimension(:), allocatable, intent(inout) :: xu
   ! -- local
-  real(R4B), dimension(:), allocatable :: xr4
+  real(R8B), dimension(:), allocatable :: xr8
   integer(I4B), dimension(:), allocatable :: idx
   integer(I4B) :: n, i, nu, iact
-  real(R4B) :: r4v
+  real(R8B) :: r8v
 ! ------------------------------------------------------------------------------
   !
   if (allocated(xu)) deallocate(xu)
@@ -8560,25 +8560,25 @@ subroutine get_unique_i4(x, xu)
     return
   end if
   !
-  allocate(idx(n), xr4(n))
+  allocate(idx(n), xr8(n))
   do i = 1, n
-    idx(i) = i; xr4(i) = real(x(i),R4B)
+    idx(i) = i; xr8(i) = real(x(i),R8B)
   end do
   !
-  call quicksort_r(xr4, idx, n)
+  call quicksort_d(xr8, idx, n)
   !
   ! count and fill
   do iact = 1, 2
-    r4v = xr4(1); nu = 1
+    r8v = xr8(1); nu = 1
     if (iact == 2) then
-      xu(nu) = int(r4v,I4B)
+      xu(nu) = int(r8v,I4B)
     end if
     do i = 1, n
-      if (r4v /= xr4(i)) then
+      if (r8v /= xr8(i)) then
         nu = nu + 1
-        r4v = xr4(i)
+        r8v = xr8(i)
         if (iact == 2) then
-          xu(nu) = int(r4v,I4B)
+          xu(nu) = int(r8v,I4B)
         end if
       end if
     end do
@@ -8589,7 +8589,7 @@ subroutine get_unique_i4(x, xu)
     end if
   end do
   !
-  deallocate(xr4, idx)
+  deallocate(xr8, idx)
   !
   return
 end subroutine get_unique_i4
