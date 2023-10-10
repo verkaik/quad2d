@@ -2673,6 +2673,9 @@ module quad2dModule
         p = int(r8wk(ic,ir),I8B)
         if (p > 0) then
           it = xtile(ic,ir)
+          if (it == 0) then
+            call errmsg('tLayerModel_read_extent: program error, zero tile.')
+          end if
           read(iu(it), pos=p) nl; p = p + I4B
           lay_read = 0
           read(iu(it), pos=p) lay_read(1:nl)
@@ -2707,6 +2710,9 @@ module quad2dModule
         p = int(r8wk(ic,ir),I8B)
         if (p > 0) then
           it = xtile(ic,ir)
+          if (it == 0) then
+            call errmsg('tLayerModel_read_extent: program error, zero tile.')
+          end if
           read(iu(it), pos=p) nl; p = p + I4B
           lay_read = 0; z_read = mv
           read(iu(it), pos=p) lay_read(1:nl); p = p + nl*I4B

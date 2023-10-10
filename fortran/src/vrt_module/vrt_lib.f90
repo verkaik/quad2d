@@ -1327,7 +1327,7 @@ module vrt_module
     logical :: loverlap, clean_tile_loc, setx
     integer(I4B), dimension(:), allocatable :: act_tile
     integer(I4B) :: itile, n_act, i_act, nc, nr, ir, ic, jr, jc, n, ncm, nrm
-    integer(I4B), dimension(:,:), allocatable :: xtile_loc
+    integer(I4B), dimension(:,:), allocatable :: xtile_loc, mxtile_loc
     real(R8B), dimension(:), allocatable :: act_tile_cs
     real(R8B) :: x, y
     !
@@ -1398,6 +1398,8 @@ module vrt_module
     nc = (bbx%xur - bbx%xll)/bbx%cs
     nr = (bbx%yur - bbx%yll)/bbx%cs
     !
+    allocate(mxtile_loc(ncm,nrm)); mxtile_loc = 0
+    !
     if (present(xi1)) then
       call errmsg('tVrt_read_extent: xi1 not yet supported')
     end if
@@ -1418,6 +1420,7 @@ module vrt_module
           if (valid_icr(jc, jr, ncm, nrm)) then
             if (xmi4(jc,jr) == mvi4) then
               xmi4(jc,jr) = i4v
+              mxtile_loc(jc,jr) = itile
             end if
           end if
         end do; end do
@@ -1448,6 +1451,7 @@ module vrt_module
           if (valid_icr(jc, jr, ncm, nrm)) then
             if (xmr4(jc,jr) == mvr4) then
               xmr4(jc,jr) = r4v
+              mxtile_loc(jc,jr) = itile
             end if
           end if
         end do; end do
@@ -1483,6 +1487,7 @@ module vrt_module
           if (valid_icr(jc, jr, ncm, nrm)) then
             if (xmr8(jc,jr) == mvr8) then
               xmr8(jc,jr) = r8v
+              mxtile_loc(jc,jr) = itile
             end if
           end if
         end do; end do
@@ -1498,42 +1503,39 @@ module vrt_module
     end if
     !
     if (present(xtile)) then
-      !itile = act_tile(1); hdrg => tile%hdrg; hdr => hdrg%hdr
-      !mvr4 = hdr%mvr4; xr4 = mvr4 
-      !do i_act = 1, n_act
-      !  itile = act_tile(i_act); tile => this%tiles(itile)
-      !  hdrg => tile%hdrg; hdr => hdrg%hdr
-      !  call tile%get(dst_bbx=bbxt)
-      !  do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
-      !    r4v = hdrg%dat%xr4(ic,ir)
-      !    if (r4v /= hdr%mvr4) then
-      !      call get_xy(x, y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
-      !      call get_icr(jc, jr, x, y, bbx%xll, bbx%yur, bbx%cs)
-      !      if (valid_icr(jc, jr, nc, nr)) then
-      !        if (xr4(jc,jr) == mvr4) then
-      !          xr4(jc,jr) = r4v
-      !          xtile_loc(jc,jr) = itile
-      !        end if
-      !      end if
-      !    end if
-      !  end do; end do
-      !end do
-      if (bbxm%cs /= bbx%cs) then
-        call errmsg('tVrt_read_extent: xtile could not be determined.')
-      end if
       allocate(xtile_loc(nc,nr)); xtile_loc = 0
-      do i_act = 1, n_act
-        itile = act_tile(i_act); tile => this%tiles(itile)
-        hdrg => tile%hdrg; hdr => hdrg%hdr
-        call tile%get(dst_bbx=bbxt)
-        do ir = 1, hdr%nrow; do ic = 1, hdr%ncol
-          call get_xy(  x,  y, ic, ir, bbxt%xll, bbxt%yur, bbxt%cs)
+      ! check
+      if (minval(mxtile_loc) == 0) then
+        call errmsg('tVrt_read_extent: zero itile found (mxtile_loc).')
+      end if
+      !
+      if (bbxm%cs > bbx%cs) then ! merged grid has LOWER resolution
+        do ir = 1, nr; do ic = 1, nc
+          call get_xy(  x,  y, ic, ir,  bbx%xll,  bbx%yur, bbx%cs)
           call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
-          if (valid_icr(jc, jr, nc, nr)) then
-            xtile_loc(jc,jr) = itile
-          end if 
+          if (valid_icr(jc, jr, ncm, nrm)) then
+            xtile_loc(ic,ir) = mxtile_loc(jc,jr)
+          end if
         end do; end do
-      end do
+      else  ! merged grid has HIGHER resolution
+        do ir = 1, nrm; do ic = 1, ncm
+          call get_xy(  x,  y, ic, ir, bbxm%xll, bbxm%yur, bbxm%cs)
+          call get_icr(jc, jr,  x,  y,  bbx%xll,  bbx%yur,  bbx%cs)
+          if (valid_icr(jc, jr, nc, nr)) then
+            ! check
+            if (xtile_loc(jc,jr) > 0) then
+              if (xtile_loc(jc,jr) /= mxtile_loc(ic,ir)) then
+                call errmsg('tVrt_read_extent: upscaling itile not implemented.')
+              end if
+            end if
+            xtile_loc(jc,jr) = mxtile_loc(ic,ir)
+          end if
+        end do; end do
+      end if
+      ! check
+      if (minval(xtile_loc) == 0) then
+        call errmsg('tVrt_read_extent: zero itile found (xtile_loc).')
+      end if
       if (allocated(xtile)) deallocate(xtile)
       allocate(xtile, source=xtile_loc)
     end if
@@ -1569,7 +1571,8 @@ module vrt_module
     if (associated(hdrg_merge)) then
       call hdrg_merge%clean(); deallocate(hdrg_merge); hdrg_merge => null()
     end if
-    if (allocated(xtile_loc)) deallocate(xtile_loc)
+    if (allocated(xtile_loc))  deallocate(xtile_loc)
+    if (allocated(mxtile_loc)) deallocate(mxtile_loc)
     !
     return
   end subroutine tVrt_read_extent
