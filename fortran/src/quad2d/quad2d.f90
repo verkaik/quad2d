@@ -5,7 +5,8 @@ module main_module
     open_file, get_xy, get_icr, R8ONE,R8ZERO, get_args, tIni, tCSV, fill_with_nearest, tUnp, &
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
-    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors, replace_token
+    quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors, replace_token, &
+    get_elapsed_time
   use vrt_module, only: tVrt, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -63,6 +64,7 @@ module main_module
   character(len=MXSLEN) :: d_log
   character(len=MXSLEN) :: f_in_flt, f_in_vrt_1, f_in_vrt_2, f_out_vrt, post_fix
   character(len=MXSLEN) :: f_exe
+  character(len=MXSLEN) :: elapsed_line
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -85,6 +87,7 @@ module main_module
   integer(I4B), dimension(:), allocatable :: gids, l2gid, g2lid
   integer(I4B), dimension(:,:), allocatable :: xid, i4w2d, regun
   integer(I4B) :: np_beg, np_step, np_end
+  integer(I4B), dimension(8) :: ibdt, iedt
   !
   real(R4B), dimension(:,:), allocatable :: r4w2d
   !
@@ -94,6 +97,7 @@ module main_module
   real(R8B) :: refr8, xll, yll, yur, cs_gid, cs_max
   real(R8B) :: weight_fac
   real(R8B) :: wgt_fac, wgt_per
+  real(R8B) :: elsec
   !
   integer(I4B) :: kper_beg, kper_end, tile_nc, tile_nr
   character(len=MXSLEN) :: head_layers
@@ -6220,6 +6224,9 @@ end module main_module
 program quad2d
   use main_module
   !
+  ! start timing
+  call date_and_time(values=ibdt)
+  !
   call quad_settings()
   !
   if (run_opt == 0) then
@@ -6359,4 +6366,12 @@ program quad2d
   !
   ! clean up
   call quad_clean()
+  !
+  ! write the timing information
+  call date_and_time(values=iedt)
+  call get_elapsed_time(ibdt, iedt, elsec, elapsed_line)
+  call logmsg('')
+  call logmsg(trim(elapsed_line))
+  call logmsg(' Total number of seconds: '// adjustl(ta([elsec],'(f12.3)')))
+  !
 end program quad2d

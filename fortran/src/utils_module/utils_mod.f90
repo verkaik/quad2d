@@ -499,7 +499,7 @@ module utilsmod
   save
 
   contains
-
+  
   function check_nan_i1(x) result(is_nan)
     integer(I1B), intent(in) :: x
     logical :: is_nan
@@ -565,6 +565,105 @@ module utilsmod
 #endif
     return
   end function check_nan_r8
+  
+  subroutine get_elapsed_time(ibdt, iedt, elsec, line)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    integer(I4B), dimension(8), intent(in) :: ibdt
+    integer(I4B), dimension(8), intent(in) :: iedt
+    real(R8B), intent(out), optional :: elsec
+    character(len=*), intent(out), optional :: line
+    ! -- local
+    integer(I4B), dimension(12) :: idpm
+    integer(I4B) :: NSPD
+    !integer(I4B) :: i
+    integer(I4B) :: ndays, leap, ibd, ied, mb, me, nm, mc, m
+    integer(I4B) :: nhours, nmins, nsecs, msecs, nrsecs
+    real(R8B) :: rsecs
+    data idpm/31,28,31,30,31,30,31,31,30,31,30,31/ ! days per month
+    data nspd/86400/  ! seconds per day
+    character(len=MXSLEN) :: line_loc
+! ------------------------------------------------------------------------------
+  
+!   Calculate elapsed time in days and seconds
+    NDAYS=0
+    LEAP=0
+    IF (MOD(IEDT(1),4).EQ.0) LEAP = 1
+    IBD = IBDT(3)            ! BEGIN DAY
+    IED = IEDT(3)            ! END DAY
+!   FIND DAYS
+    IF (IBDT(2).NE.IEDT(2)) THEN
+!     MONTHS DIFFER
+      MB = IBDT(2)             ! BEGIN MONTH
+      ME = IEDT(2)             ! END MONTH
+      NM = ME-MB+1             ! NUMBER OF MONTHS TO LOOK AT
+      IF (MB.GT.ME) NM = NM+12
+      MC=MB-1
+      DO M=1,NM
+        MC=MC+1                ! MC IS CURRENT MONTH
+        IF (MC.EQ.13) MC = 1
+        IF (MC.EQ.MB) THEN
+          NDAYS = NDAYS+IDPM(MC)-IBD
+          IF (MC.EQ.2) NDAYS = NDAYS + LEAP
+        ELSEIF (MC.EQ.ME) THEN
+          NDAYS = NDAYS+IED
+        ELSE
+          NDAYS = NDAYS+IDPM(MC)
+          IF (MC.EQ.2) NDAYS = NDAYS + LEAP
+        ENDIF
+      ENDDO
+    ELSEIF (IBD.LT.IED) THEN
+!     START AND END IN SAME MONTH, ONLY ACCOUNT FOR DAYS
+      NDAYS = IED-IBD
+    ENDIF
+    ELSEC=NDAYS*NSPD
+!
+!   ADD OR SUBTRACT SECONDS
+    ELSEC = ELSEC+(IEDT(5)-IBDT(5))*3600.0
+    ELSEC = ELSEC+(IEDT(6)-IBDT(6))*60.0
+    ELSEC = ELSEC+(IEDT(7)-IBDT(7))
+    ELSEC = ELSEC+(IEDT(8)-IBDT(8))*0.001
+!
+!   CONVERT SECONDS TO DAYS, HOURS, MINUTES, AND SECONDS
+    NDAYS = ELSEC/NSPD
+    RSECS = MOD(ELSEC, 86400.d0)
+    NHOURS = RSECS/3600.0
+    RSECS = MOD(RSECS,3600.d0)
+    NMINS = RSECS/60.0
+    RSECS = MOD(RSECS,60.0d0)
+    NSECS = RSECS
+    RSECS = MOD(RSECS,1.0d0)
+    MSECS = NINT(RSECS*1000.0)
+    NRSECS = NSECS
+    IF (RSECS.GE.0.5) NRSECS=NRSECS+1
+  
+!   Write elapsed time to screen
+    IF (NDAYS.GT.0) THEN
+      WRITE(line_loc, 1010) NDAYS,NHOURS,NMINS,NRSECS
+ 1010 FORMAT(1X,'Elapsed run time: ',I3,' Days, ',I2,' Hours, ',I2,        &
+        ' Minutes, ',I2,' Seconds')
+    ELSEIF (NHOURS.GT.0) THEN
+      WRITE(line_loc, 1020) NHOURS,NMINS,NRSECS
+ 1020 FORMAT(1X,'Elapsed run time: ',I2,' Hours, ',I2,                     &
+        ' Minutes, ',I2,' Seconds')
+    ELSEIF (NMINS.GT.0) THEN
+      WRITE(line_loc, 1030) NMINS,NSECS,MSECS
+ 1030 FORMAT(1X,'Elapsed run time: ',I2,' Minutes, ',                      &
+        I2,'.',I3.3,' Seconds')
+    ELSE
+      WRITE(line_loc, 1040) NSECS,MSECS
+ 1040 FORMAT(1X,'Elapsed run time: ',I2,'.',I3.3,' Seconds')
+    ENDIF
+    !
+    if (present(line)) then
+      line = line_loc
+    end if
+    !
+    return
+  end subroutine get_elapsed_time
   
   subroutine grid_load_imbalance(xi4, mvi4, wi4, imbal, nparts, ximbal, wgt_max)
 ! ******************************************************************************
