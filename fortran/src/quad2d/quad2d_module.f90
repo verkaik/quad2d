@@ -6296,8 +6296,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     ! work arrays
     integer(I4B), dimension(:), allocatable :: wrk_ia, wrk_ja, wrk_ihc
     integer(I4B), dimension(:), allocatable :: i4w
-    real(R4B), dimension(:), allocatable :: r4w
-    real(R8B), dimension(:), allocatable :: wrk_cl12, wrk_hwva
+    real(R8B), dimension(:), allocatable :: wrk_cl12, wrk_hwva, r8w
 ! ------------------------------------------------------------------------------
     !
     nm = size(lids)
@@ -6451,7 +6450,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end do
     !
     iac_max = maxval(abs(disu_merge%iac))
-    allocate(r4w(iac_max), i4w(iac_max))
+    allocate(r8w(iac_max), i4w(iac_max))
     !
     ! set the nodal adjacency data
     do i = 1, disu_merge%nodes
@@ -6473,15 +6472,15 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           disu_merge%hwva(j) = wrk_hwva(j)
         end do
       else ! sort
-        nbr = 0; r4w = R4ZERO; i4w = I4ZERO
+        nbr = 0; r8w = R8ZERO; i4w = I4ZERO
         do j = j0 + 1, wrk_ia(i+1)-1
           nbr = nbr + 1
-          r4w(nbr) = real(wrk_ja(j),R4B)
+          r8w(nbr) = real(wrk_ja(j),R8B)
           i4w(nbr) = nbr
         end do
         !
         ! sort the neighbor node numbers
-        call quicksort_r(r4w, i4w, nbr)
+        call quicksort_d(r8w, i4w, nbr)
         !
         ! set the neighbor data
         n = 0
@@ -6506,7 +6505,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end do
     !
     ! clean-up
-    deallocate(wrk_ja, wrk_ihc, wrk_cl12, wrk_hwva, r4w, i4w)
+    deallocate(wrk_ja, wrk_ihc, wrk_cl12, wrk_hwva, r8w, i4w)
     deallocate(nodes_arr, nodes_offset, lids2im, pos, iac_chk)
     !
     return
