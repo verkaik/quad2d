@@ -5891,7 +5891,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           if (len_trim(vtk_csv) > 0) then
             call parse_line(s=vtk_csv, sa_short=csv_arr_vtk, token_in=',')
             allocate(csv_vtk)
-            call csv_vtk%read(csv_arr_vtk(im))
+            call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm)
+            call csv_vtk%read(csv_arr_vtk(ilm))
             call csv_vtk%get_column(key='id', ca=lab_vtu)
             call csv_vtk%clean(); deallocate(csv_vtk); csv_vtk => null()
           else
