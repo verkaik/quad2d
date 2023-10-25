@@ -5882,7 +5882,6 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f)
             call q%grid_init(f, '_'//trim(ta([lid])))
           else
-            call q%get_prop_csv(ikey=i_lay_mod, i4v=im)
             call q%grid_init()
           end if
           disu => q%disu
