@@ -65,6 +65,7 @@ module main_module
   character(len=MXSLEN) :: f_in_flt, f_in_vrt_1, f_in_vrt_2, f_out_vrt, post_fix
   character(len=MXSLEN) :: f_exe
   character(len=MXSLEN) :: elapsed_line
+  character(len=MXSLEN) :: vtk_lid, vtk_csv
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -345,6 +346,8 @@ subroutine quad_settings()
       call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields)
     end if
     !
+    call ini%get_val(sect, 'vtk_lid',cv=vtk_lid, cv_def='')
+    call ini%get_val(sect, 'vtk_csv',cv=vtk_csv, cv_def='')
   case('mf6_post_wtd')
     !=========!
     run_opt = 20
@@ -5998,10 +6001,10 @@ subroutine quad_mf6_write_heads(lmerge)
   end if
   if (lmerge) then
     call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
-      tile_nc, tile_nr, f_vrt, write_nod_map, f_in_csv_merge)
+      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, vtk_csv, f_in_csv_merge)
   else
     call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
-      tile_nc, tile_nr, f_vrt, write_nod_map)
+      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, vtk_csv)
   end if
   !
   return

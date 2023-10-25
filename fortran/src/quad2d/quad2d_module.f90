@@ -19,6 +19,7 @@ module quad2dModule
   use mf6_wbd_mod, only: tMf6Wbd, i_binpos, i_asc, i_bin, MAX_NR_CSV
   use multigrid_module, only: tMultiGrid, tMultiGridArray
   use mf6_post_module, only: tPostMod
+  use vtk_module, only: tVtu, tPvd, i_vtk_voxel, kdtree_remove_doubles
   !
   implicit none
   !
@@ -5655,7 +5656,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
   !
   subroutine tQuads_write_mf6_heads(this, lid0, lid1, heads_layer, &
     kper_beg, kper_end, tile_nc, tile_nr, f_vrt_pref, write_nod_map, &
-    f_in_csv_merge)
+    vtk_lid, vtk_csv, f_in_csv_merge)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -5671,6 +5672,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(in) :: tile_nr
     character(len=*), intent(in) :: f_vrt_pref
     logical, intent(in) :: write_nod_map
+    character(len=*), intent(in) :: vtk_lid
+    character(len=*), intent(in) :: vtk_csv
     character(len=*), intent(in), optional :: f_in_csv_merge
     ! -- local
     real(R4B), parameter :: mvr4 = -99999.
@@ -5690,25 +5693,38 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     !
     type(tVrt), pointer :: vrt => null()
     !
-    type(tCsv), pointer :: csv => null()
+    type(tCsv), pointer :: csv => null(), csv_vtk => null()
+    !
+    type(tVtu), pointer :: vtu => null()
+    type(tPvd), pointer :: pvd => null()
+    type(tMultiGrid), pointer :: nod_mg => null()
+    type(tMultiGrid), pointer :: top_mg => null()
+    type(tMultiGrid), pointer :: bot_mg => null()
+    type(tGrid), pointer      :: nod_g  => null()
+    type(tGrid), pointer      :: top_g  => null()
+    type(tGrid), pointer      :: bot_g  => null()
     !
     character(len=MXSLEN), dimension(:), allocatable :: pfix_tile, f_tile, mv_tile
-    character(len=MXSLEN), dimension(:), allocatable :: f_tile_nodmap, mv_tile_nodmap
+    character(len=MXSLEN), dimension(:), allocatable :: f_tile_nodmap, mv_tile_nodmap, f_vtu, csv_arr_vtk, lab_vtu
     character(len=MXSLEN) :: f, d, f_csv_dat
     character(len=MXSLENLONG) :: s_long
-    integer(I4B) :: lid, nmod, nact, ntile, itile, bnc, bnr
-    integer(I4B) :: ic0, ir0, ic1, ir1, ic, ir, jc, jr, kc, kr, ilm, il, jl
-    integer(I4B) :: i, nodes, nodes_nodmap, kper
-    integer(I4B) :: nod, nod_min, nod_max, nod_off, n, nc, nr, bs
-    integer(I4B) :: im, nim, nlid, nodes_merge, lid2, nodes_offset
-    integer(I4B), dimension(:), allocatable :: output_layer, i4wk
-    integer(I4B), dimension(:), allocatable :: im_arr, lid2im_arr, lid_arr
-    integer(I4B), dimension(:,:), allocatable :: nodmap_q, nodmap_t, tile_topol
-    real(R4B), dimension(:,:), allocatable :: xr4_q, xr4_t
+    real(R8B), dimension(:,:), allocatable :: vtk_xc, vtk_x
+    real(R8B), dimension(:), allocatable :: vtk_cs, vtk_dz
+    real(R4B), dimension(:,:), allocatable :: xr4_q, xr4_t, vtk_var
     real(R4B) :: r4v
     real(R8B) :: xll, yur, cs, cs_min, cs_min_rea, cxll, cxur, cyll, cyur
+    real(R8B) :: xc, yc, zc, top, bot, dz, hcs, hdz
+    integer(I4B), dimension(:), allocatable :: output_layer, i4wk, vtk_xi
+    integer(I4B), dimension(:), allocatable :: im_arr, lid2im_arr, lid_arr, lid_arr_vtk
+    integer(I4B), dimension(:,:), allocatable :: nodmap_q, nodmap_t, tile_topol
+    integer(I4B) :: lid, nmod, nact, ntile, itile, bnc, bnr
+    integer(I4B) :: ic0, ir0, ic1, ir1, ic, ir, jc, jr, kc, kr, ilm, il, jl, ig
+    integer(I4B) :: i, ilid, nodes, nodes_nodmap, kper
+    integer(I4B) :: nod, nod_min, nod_max, nod_off, n, nc, nr, nl, bs, nvtkx
+    integer(I4B) :: im, nim, nlid, nodes_merge, lid2, nodes_offset
+    integer(I4B) :: nlid_vtk, iact
     !
-    logical :: read_data, merge
+    logical :: read_data, merge, found
 ! ------------------------------------------------------------------------------
     !
     if (present(f_in_csv_merge)) then
@@ -5851,6 +5867,201 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       stop
     end if
     !
+    ! VTK
+    if (len_trim(vtk_lid) > 0) then
+      call parse_line(s=vtk_lid, i4a=lid_arr_vtk, token_in=',')
+      nlid_vtk = size(lid_arr_vtk)
+      do ilid = 1, nlid_vtk
+        lid = lid_arr_vtk(ilid)
+        q => this%get_quad(lid)
+        if (q%get_flag(active=LDUM)) then
+          call q%get_bb(child_bbi=bbi, child_bbx=bbx)
+          ! get the number of layers
+          if (merge) then
+            im = lid2im_arr(lid) 
+            call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f)
+            call q%grid_init(f, '_'//trim(ta([lid])))
+          else
+            call q%get_prop_csv(ikey=i_lay_mod, i4v=im)
+            call q%grid_init()
+          end if
+          disu => q%disu
+          !
+          if (allocated(lab_vtu)) deallocate(lab_vtu)
+          if (len_trim(vtk_csv) > 0) then
+            call parse_line(s=vtk_csv, sa_short=csv_arr_vtk, token_in=',')
+            allocate(csv_vtk)
+            call csv_vtk%read(csv_arr_vtk(im))
+            call csv_vtk%get_column(key='id', ca=lab_vtu)
+            call csv_vtk%clean(); deallocate(csv_vtk); csv_vtk => null()
+          else
+            allocate(lab_vtu(disu%nlay))
+            do i = 1, disu%nlay
+              lab_vtu(i) = ta([i],'(i3.3)')
+            end do
+          end if
+          allocate(pvd)
+          call pvd%init(f=trim(f_vrt_pref)//'_lid_'//ta([lid])//'.pvd', &
+          ndstime=kper_end-kper_beg+1, npart=disu%nlay_act)
+          !
+          if (allocated(i4wk)) deallocate(i4wk)
+          allocate(i4wk(disu%nodes)); i4wk = I4ZERO
+          allocate(f_vtu(disu%nlay_act)); f_vtu = ''
+          do il = 1, disu%nlay_act
+            jl = disu%lay_act(il)
+            !
+            i4wk = 0; nodes = 0
+            nod_mg  => disu%grid_mga_nod%get_mg(il)
+            do ig = 1, nod_mg%ngrid
+              nod_g => nod_mg%grid(ig)
+              do ir = 1, nod_g%nr; do ic = 1, nod_g%nc
+                n = nod_g%xi4(ic,ir)
+                if (n /= nod_g%mvi4) then
+                  nodes = nodes + 1
+                  i4wk(n) = nodes
+                end if
+              end do; end do
+            end do
+            !
+            if (allocated(vtk_xc)) deallocate(vtk_xc)
+            if (allocated(vtk_cs)) deallocate(vtk_cs)
+            if (allocated(vtk_dz)) deallocate(vtk_dz)
+            allocate(vtk_xc(3,nodes), vtk_cs(nodes), vtk_dz(nodes))
+            vtk_cs = R8ZERO; vtk_dz = R8ZERO
+            !
+            nod_mg  => disu%grid_mga_nod%get_mg(il)
+            top_mg  => disu%grid_mga_top%get_mg(il)
+            bot_mg  => disu%grid_mga_bot%get_mg(il)
+            n = 0
+            do ig = 1, nod_mg%ngrid
+              nod_g => nod_mg%grid(ig)
+              top_g => top_mg%grid(ig)
+              bot_g => bot_mg%grid(ig)
+              cs = nod_g%bbx%cs
+              nr = nod_g%nr; nc = nod_g%nc
+              bbx = nod_g%bbx
+              do ir = 1, nr; do ic = 1, nc
+                n = nod_g%xi4(ic,ir)
+                if (n /= nod_g%mvi4) then
+                  i = i4wk(n)
+                  if ((i == 0).or.(i > nodes)) then
+                    call errmsg('tQuads_write_mf6_heads: program error.')
+                  end if
+                  call get_xy(xc, yc, ic, ir, bbx%xll, bbx%yur, bbx%cs)
+                  top = real(top_g%xr4(ic,ir),R8B); bot = real(bot_g%xr4(ic,ir),R8B)
+                  dz = top - bot
+                  vtk_dz(i) = dz
+                  zc = bot + dz*R8HALF
+                  vtk_xc(1,i) = xc; vtk_xc(2,i) = yc
+                  !vtk_xc(1,i) = xc-bbx%xll; vtk_xc(2,i) = yc-bbx%yll
+                  vtk_xc(3,i) = zc
+                  vtk_cs(i) = cs; 
+                end if
+              end do; end do
+            end do
+            !
+            if (minval(vtk_cs) == R8ZERO) then
+              call errmsg('tQuads_write_mf6_heads: program error.')
+            end if
+            if (minval(vtk_dz) <= R8ZERO) then
+              call errmsg('tQuads_write_mf6_heads: program error.')
+            end if
+            !
+            if (allocated(vtk_x)) deallocate(vtk_x)
+            if (allocated(vtk_xi)) deallocate(vtk_xi)
+            !nodes = 2 !366
+            nvtkx = 8*nodes
+            allocate(vtk_x(3,nvtkx), vtk_xi(nvtkx))
+            nvtkx = 0
+            do n = 1, nodes
+              xc = vtk_xc(1,n); yc = vtk_xc(2,n); zc = vtk_xc(3,n)
+              hcs = R8HALF*vtk_cs(n); hdz = R8HALF*vtk_dz(n)
+              nvtkx = nvtkx + 1
+              vtk_x(1,nvtkx) = xc - hcs; vtk_x(2,nvtkx) = yc - hcs; vtk_x(3,nvtkx) = zc - hdz; nvtkx = nvtkx + 1 ! 0
+              vtk_x(1,nvtkx) = xc + hcs; vtk_x(2,nvtkx) = yc - hcs; vtk_x(3,nvtkx) = zc - hdz; nvtkx = nvtkx + 1 ! 1
+              vtk_x(1,nvtkx) = xc - hcs; vtk_x(2,nvtkx) = yc + hcs; vtk_x(3,nvtkx) = zc - hdz; nvtkx = nvtkx + 1 ! 2
+              vtk_x(1,nvtkx) = xc + hcs; vtk_x(2,nvtkx) = yc + hcs; vtk_x(3,nvtkx) = zc - hdz; nvtkx = nvtkx + 1 ! 3
+              vtk_x(1,nvtkx) = xc - hcs; vtk_x(2,nvtkx) = yc - hcs; vtk_x(3,nvtkx) = zc + hdz; nvtkx = nvtkx + 1 ! 4
+              vtk_x(1,nvtkx) = xc + hcs; vtk_x(2,nvtkx) = yc - hcs; vtk_x(3,nvtkx) = zc + hdz; nvtkx = nvtkx + 1 ! 5
+              vtk_x(1,nvtkx) = xc - hcs; vtk_x(2,nvtkx) = yc + hcs; vtk_x(3,nvtkx) = zc + hdz; nvtkx = nvtkx + 1 ! 6
+              vtk_x(1,nvtkx) = xc + hcs; vtk_x(2,nvtkx) = yc + hcs; vtk_x(3,nvtkx) = zc + hdz ! 7
+            end do
+            call kdtree_remove_doubles(vtk_x, nvtkx, vtk_xi)
+            !
+            ! read the data
+            allocate(nodmap_q, source=disu%grid_x_nod(:,:,il))
+            nc = size(nodmap_q,1); nr = size(nodmap_q,2)
+            allocate(post)
+            nodes_offset = 0
+            if (merge) then
+              im = lid2im_arr(lid)
+              call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+              call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+              call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
+              call csv%get_val(ir=im, ic=csv%get_col('nodes'), i4v=nodes_merge)
+              found = .false.
+              do i = 1, nlid
+                lid2 = lid_arr(i)
+                if (lid == lid2) then
+                  found = .true.
+                  exit
+                end if
+                q2 => this%get_quad(lid2)
+                call q2%get_prop_csv(key='nodes', i4v=n)
+                nodes_offset = nodes_offset + n
+              end do
+              if (.not.found) then
+                call errmsg('tQuads_write_mf6_heads: program error.')
+              end if
+            else
+              call errmsg('VTK yet only supported with grid merging.')
+            end if
+            !
+            do kper = kper_beg, kper_end
+              call post%init(f, kper, kper, nodes_merge)
+              call post%read_ulasav()
+              call post%get_grid(kper, nodmap_q, mvr4, xr4_q, nodes_offset)
+              if (allocated(vtk_var)) deallocate(vtk_var)
+              allocate(vtk_var(1,nodes)); vtk_var = mvr4
+              do ir = 1, nr; do ic = 1, nc
+                n = nodmap_q(ic,ir)
+                if (n > 0) then
+                  i = i4wk(n)
+                  if (i == 0) then
+                    call errmsg('tQuads_write_mf6_heads: program error.')
+                  end if
+                  vtk_var(1,i) = xr4_q(ic,ir)
+                end if
+              end do; end do
+              ! check
+              do i = 1, nodes
+                if (vtk_var(1,i) == mvr4) then
+                  call errmsg('tQuads_write_mf6_heads: program error.')
+                end if
+              end do
+              deallocate(nodmap_q, xr4_q)
+              call post%clean(); deallocate(post)
+              !
+              allocate(vtu)
+              f_vtu(il) = trim(f_vrt_pref)//'_lid_'//ta([lid])//'_kper_'//ta([kper],'(i3.3)')// &
+                '_il_'//ta([il],'(i3.3)')//'.vtu'
+              call pvd%set(itimestep=kper-kper_beg+1, ipart=il, partname=trim(lab_vtu(jl)), f_vtu=f_vtu(il))
+              call vtu%init(f=f_vtu(il))
+              call vtu%mesh%set_uniform(celltype=i_vtk_voxel, x=vtk_x, nc=nodes, ja=vtk_xi)
+              call vtu%set_var((/'head'/), vtk_var)
+              call vtu%write_bin_raw()
+              call vtu%clean(); deallocate(vtu); vtu => null()
+            end do ! kper
+          end do ! layer
+          !
+          ! write the pvd
+          call pvd%write()
+          call pvd%clean()
+          deallocate(pvd); pvd => null()
+        end if
+      end do
+    end if
+    
     ! loop over the tiles, read, and write
     do kper = kper_beg, kper_end
       nod_off = 0
@@ -5870,6 +6081,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           if (q%get_flag(active=LDUM)) then
             call q%get_bb(child_bbx=bbx)
             call q%get_prop_csv(key='cs_min_rea', r8v=cs_min_rea)
+            !
             if (bbx_intersect(bbx, bbxp)) then
               call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm) ! layer model
               il = output_layer(ilm) ! layer for output
@@ -5971,6 +6183,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                   end do; end do
                   if (nod_min /= nod_max) then
                     n = nod_max - nod_min + 1
+                    if (allocated(i4wk)) deallocate(i4wk)
                     allocate(i4wk(n)); i4wk = 0
                     do ir = 1, nr; do ic = 1, nc
                       nod = nodmap_q(ic,ir)

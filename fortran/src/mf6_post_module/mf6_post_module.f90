@@ -142,7 +142,6 @@ module mf6_post_module
     end if
     this%kper_map = abs(this%kper_map)
     !
-    !
     return
   end subroutine mf6_post_mod_read_ulasav
   
@@ -210,7 +209,7 @@ module mf6_post_module
     return
   end subroutine mf6_post_mod_read_ulasav_selection
   
-  subroutine mf6_get_r4grid(this, kper, nod_map, mvr4, xr4)
+  subroutine mf6_get_r4grid(this, kper, nod_map, mvr4, xr4, nodes_offset)
 ! ******************************************************************************
     ! -- arguments
     class(tPostMod) :: this
@@ -218,9 +217,16 @@ module mf6_post_module
     integer(I4B), dimension(:,:), intent(in) :: nod_map
     real(R4B), intent(in) :: mvr4
     real(R4B), dimension(:,:), allocatable, intent(inout) :: xr4
+    integer(I4B), intent(in), optional :: nodes_offset
     ! --- local
-    integer(I4B) :: iper, nc, nr, ic, ir, nod
+    integer(I4B) :: iper, nc, nr, ic, ir, nod, offset
 ! ------------------------------------------------------------------------------
+    if (present(nodes_offset)) then
+      offset = nodes_offset
+    else
+      offset = 0
+    end if
+    !
     iper = kper - this%kper_beg + 1
     !
     ! check
@@ -233,8 +239,11 @@ module mf6_post_module
     allocate(xr4(nc,nr)); xr4 = mvr4
     do ir = 1, nr; do ic = 1, nc
       nod = nod_map(ic,ir)
-      if ((nod > 0).and.(nod <= this%nodes)) then
-        xr4(ic,ir) = this%xr8_read(iper,nod)
+      if (nod > 0) then
+        nod = nod + offset
+        if (nod <= this%nodes) then
+          xr4(ic,ir) = this%xr8_read(iper,nod)
+        end if
       end if
     end do; end do
     !
