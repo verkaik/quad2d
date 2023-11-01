@@ -253,6 +253,7 @@ module quad2dModule
     integer(I4B) :: i_type
     integer(I4B) :: i_uscl
     integer(I4B) :: i_dscl
+    real(R8B)    :: mult_fac
     type(tVrt),      pointer :: vrt  => null()
     type(tVrtArray), pointer :: vrta => null()
     type(tCSV),      pointer :: csv  => null()
@@ -1991,6 +1992,15 @@ module quad2dModule
         i_uscl = i_uscl_nodata; i_dscl = i_dscl_nodata
       end if
       dat%i_uscl = i_uscl; dat%i_dscl = i_dscl
+      !
+      ! multiplication factor
+      dat%mult_fac = R8ONE
+      if (parl%exist_col('mult_fac')) then
+        call parl%get_val(ir=ir, ic=parl%get_col('mult_fac'), cv=s)
+        if (len_trim(s) > 0) then
+          read(s,*) dat%mult_fac
+        end if
+      end if
     end do
     !
     call parm%get_val(ir=idat, ic=parm%get_col('ilay'), cv=s)
@@ -11069,7 +11079,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       !
       if (dat%i_type == i_vrt) then
         call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
-          i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4)
+          i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
+          mfr8=dat%mult_fac)
       end if
     end do
     !
@@ -11342,7 +11353,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         !
         if (dat%i_type == i_vrt) then
           call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
-            i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4)
+            i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
+            mfr8=dat%mult_fac)
         end if
       end do
       !
@@ -11422,7 +11434,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           g => mg%grid(ig)
           if (.not.lconst) then
             call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
-              i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+              i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false., &
+              mfr8=dat%mult_fac)
           end if
           do ir = 1, g%nr; do ic = 1, g%nc
             n = g%xi4(ic,ir)
@@ -11534,7 +11547,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                   mp = mp + 1
                   if (iact == 2) then
                     i4a(mp) = n
-                    r8a(mp) = real(csv_v(ip),R8B)
+                    r8a(mp) = real(csv_v(ip),R8B) * dat%mult_fac ! apply factor
                   end if
                 end if
               end do
@@ -11692,7 +11705,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                 if (iact == 2) then
                   i4a(n) = nod2d(i,il)
                   ip = mapping(i)
-                  r8a(n) = f*csv_v(ip)
+                  r8a(n) = real(f,R8B) * real(csv_v(ip),R8B) * dat%mult_fac
                 end if
               end if
             end if
@@ -12473,7 +12486,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
   end function calc_frac
   
   subroutine vrt_read_extent_mg(vrt, bbx, csa, i_uscl, i_dscl, mg, &
-    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8)
+    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, mfr8)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -12494,12 +12507,20 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     real(R4B),    intent(out), optional :: mvr4
     real(R8B),    intent(out), optional :: mvr8
     !
+    real(R8B),    intent(in), optional  :: mfr8
+    !
     ! -- local
     type(tBbx) :: bbx_read
     type(tGrid), pointer :: g   => null()
     
     integer(I4B) :: ngrid, n, ig
+    real(R8B) :: mfr8_loc
 ! ------------------------------------------------------------------------------
+    if (present(mfr8)) then
+      mfr8_loc = mfr8
+    else
+      mfr8_loc = R8ONE
+    end if
     !
     ngrid = size(csa)
     call mg%init(ngrid, xll=bbx%xll, xur=bbx%xur, &
@@ -12522,11 +12543,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       end if
       if (g%i_data_type == i_r4) then
         call vrt%read_extent(xr4=g%xr4, mvr4=g%mvr4, bbx=g%bbx, &
-          i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false.)
+          i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false., mfr8=mfr8_loc)
         mvr4 = g%mvr4
       else
         call vrt%read_extent(xr8=g%xr8, mvr8=g%mvr8, bbx=g%bbx, &
-          i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false.)
+          i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false., mfr8=mfr8_loc)
         mvr8 = g%mvr8
       end if
     end do

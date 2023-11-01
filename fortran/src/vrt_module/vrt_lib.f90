@@ -1,7 +1,7 @@
 module vrt_module
   ! modules
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, &
-    i_i1, i_i2, i_i4, i_i8, i_r4, i_r8, I4ZERO, R4ZERO, R8ZERO, R8HALF, &
+    i_i1, i_i2, i_i4, i_i8, i_r4, i_r8, I4ZERO, R4ZERO, R8ZERO, R8ONE, R8HALF, &
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
     ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
@@ -1286,7 +1286,7 @@ module vrt_module
   
   subroutine tVrt_read_extent(this, bbx, xi1, xi2, xi4, xi8, xr4, xr8, &
     mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, i_uscl, i_dscl, xtile, &
-    f_bin, clean_tile)
+    f_bin, clean_tile, mfr8)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1318,6 +1318,8 @@ module vrt_module
     !
     logical, intent(in), optional :: clean_tile
     !
+    real(R8B), optional :: mfr8
+    
     ! -- local
     type(tVrtTile), pointer :: tile => null()
     type(tHdr), pointer :: hdrg => null(), hdrg_merge => null()
@@ -1330,6 +1332,7 @@ module vrt_module
     integer(I4B), dimension(:,:), allocatable :: xtile_loc, mxtile_loc
     real(R8B), dimension(:), allocatable :: act_tile_cs
     real(R8B) :: x, y
+    real(R8B) :: mfr8_loc
     !
     integer(I4B) :: i4v
     real(R4B)    :: r4v
@@ -1342,6 +1345,11 @@ module vrt_module
     real(R4B),    dimension(:,:), allocatable :: xmr4
     real(R8B),    dimension(:,:), allocatable :: xmr8
  ! ------------------------------------------------------------------------------
+    if (present(mfr8)) then
+      mfr8_loc = mfr8
+    else
+      mfr8_loc = R8ONE
+    end if
     !
     if (present(clean_tile)) then
       clean_tile_loc = clean_tile
@@ -1419,6 +1427,9 @@ module vrt_module
           call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
           if (valid_icr(jc, jr, ncm, nrm)) then
             if (xmi4(jc,jr) == mvi4) then
+              if (i4v /= mvi4) then
+                i4v = i4v * int(mfr8_loc, I4B)
+              end if
               xmi4(jc,jr) = i4v
               mxtile_loc(jc,jr) = itile
             end if
@@ -1450,6 +1461,9 @@ module vrt_module
           call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
           if (valid_icr(jc, jr, ncm, nrm)) then
             if (xmr4(jc,jr) == mvr4) then
+              if (r4v /= mvr4) then
+                r4v = r4v * real(mfr8_loc, R4B)
+              end if
               xmr4(jc,jr) = r4v
               mxtile_loc(jc,jr) = itile
             end if
@@ -1486,6 +1500,9 @@ module vrt_module
           call get_icr(jc, jr,  x,  y, bbxm%xll, bbxm%yur, bbxm%cs)
           if (valid_icr(jc, jr, ncm, nrm)) then
             if (xmr8(jc,jr) == mvr8) then
+              if (r8v /= mvr8) then
+                r8v = r8v * mfr8_loc
+              end if
               xmr8(jc,jr) = r8v
               mxtile_loc(jc,jr) = itile
             end if
