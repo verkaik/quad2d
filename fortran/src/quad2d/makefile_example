@@ -1,0 +1,45 @@
+BINDIR = ./bin/
+PROGRAM = quad2d
+F90FLAGS = -O3 -fpp -DLINUX -DIFORT -assume buffered_io
+F90 = ifort
+USRLIBS = -L./metis-5.1.0_64bit/build/Linux-x86_64/libmetis/ -lmetis
+OBJECTS = \
+	kdtree2.o \
+	imod_idf_par.o \
+	uuid_module.o \
+	metis_enum_5.1.0.o \
+	imod_utl.o \
+	metis_module.o \
+	imod_idf_lib.o \
+	imod_idf_mod.o \
+	utils_mod.o \
+	mf6_post_module.o \
+	chaco_module.o \
+	hdr_lib.o \
+	vtk_lib.o \
+	mf6_write_bulk_data_module.o \
+	vrt_lib.o \
+	multigrid_module.o \
+	quad2d_module.o \
+	quad2d.o \
+	geometry.o \
+	utl.o
+all: quad2d
+quad2d: $(OBJECTS)
+	-$(F90) $(F90FLAGS) -o $(BINDIR)$(PROGRAM) $(OBJECTS) $(USRLIBS) $(SYSLIBS)
+%.o: %.f
+	$(F90) $(F90FLAGS) -c $<
+%.o: %.F
+	$(F90) $(F90FLAGS) -c $<
+%.o: %.for
+	$(F90) $(F90FLAGS) -c $<
+%.o: %.FOR
+	$(F90) $(F90FLAGS) -c $<
+%.o: %.f90
+	$(F90) $(F90FLAGS) -c $<
+%.o: %.F90
+	$(F90) $(F90FLAGS) -c $<
+%.o: %.fpp
+	$(F90) $(F90FLAGS) -c $<
+clean:
+	rm -f *.o *.mod
