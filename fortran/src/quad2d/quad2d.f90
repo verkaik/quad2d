@@ -2839,6 +2839,9 @@ subroutine quad_sub_grid_part()
   !
   call logmsg('Total weight: '//ta([int(wgt_tot)]))
   !
+  call grid_load_imbalance(xid, xid_mv, weight, imbal, np)
+  call logmsg('Overall starting load imbalance for '//ta([np])//' parts: '//ta([imbal],'(f10.2)'))
+  !
   gid_new = gid_max_loc
   if (lgidsep) then
     allocate(xid_split(nc,nr)); xid_split = 0
