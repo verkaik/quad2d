@@ -5,7 +5,7 @@ module vrt_module
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
     ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
-    get_bb_extent
+    get_bb_extent, tCSV
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata, writeflt
 
   implicit none
@@ -120,6 +120,7 @@ module vrt_module
   type, public :: tVrtArray
     character(len=MXSLEN) :: f
     integer(I4B) :: n = 0
+    logical, dimension(:), allocatable :: active
     integer(I4B), dimension(:), allocatable :: iconst
     real(R4B), dimension(:), allocatable :: r4const
     type(tVrt), dimension(:), pointer :: vrta => null()
@@ -147,59 +148,50 @@ module vrt_module
     class(tVrtArray) :: this
     ! -- local
     type(tVrt), pointer :: vrt => null()
+    type(tCSV) :: csv
     integer(I4B), parameter :: MAXLINE = 1000
     character(len=MXSLEN), dimension(MAXLINE) :: sa
-    character(len=MXSLEN) :: s, f
+    character(len=MXSLEN) :: s, f, f_vrt
     logical :: flag
-    integer(I4B) :: i, iu, ios
+    integer(I4B) :: ir, iu, ios, ilay
+    integer(I4B), dimension(:), allocatable :: layers
+    real(R4B) :: r4const
 ! ------------------------------------------------------------------------------
     !
-    f = this%f
     if (len_trim(f) == 0) then
       call errmsg('tVrtArray_init: file not present.')
     end if
     !
+    f = this%f
+    call csv%read(f)
+    call csv%get_column(key='layer', i4a=layers)
+    this%n = maxval(layers)
+    
     call this%clean()
-    !
-    this%n = 0
-    !
-    call open_file(f, iu, 'r')
-    do while(.true.)
-      read(unit=iu,iostat=ios,fmt='(a)') s
-      if (ios /= 0) then
-        exit
-      end if
-      if (len_trim(s) == 0) cycle
-      !
-      this%n = this%n + 1
-      if (this%n > MAXLINE) then
-        call errmsg('tVrtArray_init: increase MAXLINE.')
-      else
-        sa(this%n) = trim(s)
-      end if
-    end do
-    close(iu)
-    !
-    if (this%n == 0) then
-      call logmsg('tVrtArray_init: nothing to do, returning...')
-      return
-    end if
-    !
+    
+    allocate(this%active(this%n)); this%active = .false.
     allocate(this%vrta(this%n))
     allocate(this%iconst(this%n)); this%iconst = 0
     allocate(this%r4const(this%n)); this%r4const = R4ZERO
     
-    do i = 1, this%n
-      ! check for constant
-      s = adjustl(change_case(sa(i), 'l'))
-      if (s(1:8) == 'constant') then
-        this%iconst(i) = 1
-        read(sa(i),*) s, this%r4const(i)
+    do ir = 1, this%n
+      ilay = layers(ir)
+      call csv%get_val(ir=ir, ic=csv%get_col('file'), cv=f_vrt)
+      this%active(ilay) = .true.
+      if (len_trim(f_vrt) > 0) then
+        vrt => this%vrta(ilay)
+        call vrt%init(f_vrt)
       else
-        vrt => this%vrta(i)
-        call vrt%init(sa(i))
+        call csv%get_val(ir=ir, ic=csv%get_col('constant'), r4v=r4const)
+        call logmsg('Setting constant value: '//ta([r4const])//'...')
+        this%iconst(ilay) = 1
+        this%r4const(ilay) = r4const
       end if
     end do
+    !
+    ! clean up
+    call csv%clean()
+    deallocate(layers)
     !
     return
   end subroutine tVrtArray_init
@@ -222,6 +214,7 @@ module vrt_module
       end do
       deallocate(this%vrta); this%vrta => null()
     end if
+    if (allocated(this%active)) deallocate(this%active)
     if (allocated(this%iconst)) deallocate(this%iconst)
     if (allocated(this%r4const)) deallocate(this%r4const)
     !

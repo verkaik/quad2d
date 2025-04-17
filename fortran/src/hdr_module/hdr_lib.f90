@@ -18,22 +18,23 @@ module hdrModule
   real(R8B),    parameter :: R8ZERO = 0.d0
   !
   ! upscaling
-  integer(I4B), parameter, public :: i_uscl_nodata    = 0 ! no data
-  integer(I4B), parameter, public :: i_uscl_spec      = 1 ! special/ibound
-  integer(I4B), parameter, public :: i_uscl_arith     = 2 ! arithmetic <====
-  integer(I4B), parameter, public :: i_uscl_geom      = 3 ! geometric <====
-  integer(I4B), parameter, public :: i_uscl_sumq      = 4 ! sum(Q)
-  integer(I4B), parameter, public :: i_uscl_sumcdr    = 5 ! sum(cond)*ratio <====
-  integer(I4B), parameter, public :: i_uscl_invc      = 6 ! inverse (c)
-  integer(I4B), parameter, public :: i_uscl_mostfr    = 7 ! most freq. occ
-  integer(I4B), parameter, public :: i_uscl_suminvcvr = 8 ! sum(1/c)*ratio
-  integer(I4B), parameter, public :: i_uscl_perc      = 9 ! percentile
-  integer(I4B), parameter, public :: i_uscl_arithnd   = 10 ! average including locations with nodata (rch/evt)  <====
+  integer(I4B), parameter, public :: i_uscl_nodata      = 0 ! no data
+  integer(I4B), parameter, public :: i_uscl_spec        = 1 ! special/ibound
+  integer(I4B), parameter, public :: i_uscl_arith       = 2 ! arithmetic <====
+  integer(I4B), parameter, public :: i_uscl_geom        = 3 ! geometric <====
+  integer(I4B), parameter, public :: i_uscl_sumq        = 4 ! sum(Q)
+  integer(I4B), parameter, public :: i_uscl_sumcdr      = 5 ! sum(cond)*ratio <====
+  integer(I4B), parameter, public :: i_uscl_sumcdr_cinp = 6 ! sum(cond)*ratio ***INPUT IS RESISTANCE ***
+  integer(I4B), parameter, public :: i_uscl_invc        = 7 ! inverse (c)
+  integer(I4B), parameter, public :: i_uscl_mostfr      = 8 ! most freq. occ
+  integer(I4B), parameter, public :: i_uscl_suminvcvr   = 9 ! sum(1/c)*ratio
+  integer(I4B), parameter, public :: i_uscl_perc        = 10 ! percentile
+  integer(I4B), parameter, public :: i_uscl_arithnd     = 11 ! average including locations with nodata (rch/evt)  <====
   integer(I4B), parameter, public :: n_uscl = i_uscl_arithnd
   
   character(len=MXSLEN), dimension(n_uscl), public, parameter :: &
     uscl_names = ['spec', 'arith', 'geom', 'sumq', 'sumcdr', &
-      'invc', 'mostfr', 'suminvcvr', 'perc', 'arithnd']
+      'sumcdr_cinp', 'invc', 'mostfr', 'suminvcvr', 'perc', 'arithnd']
   
   ! downscaling
   integer(I4B), parameter, public :: i_dscl_nodata       = 0 ! no data
@@ -2202,6 +2203,8 @@ subroutine hdrhdr_clean(this)
       call logmsg('---> Upscaling: geometric <---')
     case(i_uscl_sumcdr)
       call logmsg('---> Upscaling: sum conductance <---')
+    case(i_uscl_sumcdr_cinp)
+      call logmsg('---> Upscaling: sum conductance *** RESISTANCE AS INPUT *** <---')
     case default
       call errmsg('Not supported upscaling method.')
     end select
@@ -2234,10 +2237,10 @@ subroutine hdrhdr_clean(this)
             xi4(jc,jr) = i4s/n
           end if
         case(i_uscl_geom)
-         if (n > 0) then
-           xi4(jc,jr) = int(exp(es/n),i4b)
-         end if
-        case(i_uscl_sumcdr)
+          if (n > 0) then
+            xi4(jc,jr) = int(exp(es/n),i4b)
+          end if
+        case(i_uscl_sumcdr, i_uscl_sumcdr_cinp)
           xi4(jc,jr) = i4s
         end select
       end do; end do
@@ -2265,7 +2268,7 @@ subroutine hdrhdr_clean(this)
           if (n > 0) then
             xr4(jc,jr) = real(exp(es/n),r4b)
           end if  
-        case(i_uscl_sumcdr)
+        case(i_uscl_sumcdr, i_uscl_sumcdr_cinp)
           xr4(jc,jr) = r4s
         end select
       end do; end do
@@ -2302,7 +2305,7 @@ subroutine hdrhdr_clean(this)
     real(R4B),    dimension(:,:), allocatable :: xr4
     real(R8B),    dimension(:,:), allocatable :: xr8
     !
-    integer(I4B) :: ns, mc, mr, jr, jc, ir, ic
+    integer(I4B) :: ns, mc, mr, jr, jc, ir, ic, nc, nr
     real(R8B) :: cfr8
 ! ------------------------------------------------------------------------------
     if (present(correct_for_area)) then
@@ -2330,8 +2333,12 @@ subroutine hdrhdr_clean(this)
       call errmsg('hdr_down_scale_nointp: i2 not yet supported')
     case(i_i4)
       allocate(xi4(mc,mr)); xi4 = src_hdr%mvi4
+      nr = size(dat%xi4,2); nc = size(dat%xi4,1)
       do jr = 1, mr; do jc = 1, mc
         ir = ceiling(real(jr,R8B)/ns); ic = ceiling(real(jc,R8B)/ns)
+        if ((ir < 1).or.(ir > nr).or.(ic < 1).or.(ic > nc)) then
+          call errmsg('hdr_down_scale_intp: program error xi4.')
+        end if
         if (dat%xi4(ic,ir) /= src_hdr%mvi4) then
           xi4(jc,jr) = dat%xi4(ic,ir) * int(cfr8,I4B)
         end if
@@ -2339,8 +2346,12 @@ subroutine hdrhdr_clean(this)
       call this%replace_grid(xi4=xi4, mvi4=src_hdr%mvi4)
     case(i_r4)
       allocate(xr4(mc,mr)); xr4 = src_hdr%mvr4
+      nr = size(dat%xr4,2); nc = size(dat%xr4,1)
       do jr = 1, mr; do jc = 1, mc
         ir = ceiling(real(jr,R8B)/ns); ic = ceiling(real(jc,R8B)/ns)
+        if ((ir < 1).or.(ir > nr).or.(ic < 1).or.(ic > nc)) then
+          call errmsg('hdr_down_scale_intp: program error xr4.')
+        end if
         if (dat%xr4(ic,ir) /= src_hdr%mvr4) then
           xr4(jc,jr) = dat%xr4(ic,ir) * real(cfr8,r4B)
         end if
@@ -2348,8 +2359,12 @@ subroutine hdrhdr_clean(this)
       call this%replace_grid(xr4=xr4, mvr4=src_hdr%mvr4)
     case(i_r8)
       allocate(xr8(mc,mr)); xr8 = src_hdr%mvr8
+      nr = size(dat%xr8,2); nc = size(dat%xr8,1)
       do jr = 1, mr; do jc = 1, mc
         ir = ceiling(real(jr,R8B)/ns); ic = ceiling(real(jc,R8B)/ns)
+        if ((ir < 1).or.(ir > nr).or.(ic < 1).or.(ic > nc)) then
+          call errmsg('hdr_down_scale_intp: program error xr8.')
+        end if
         if (dat%xr8(ic,ir) /= src_hdr%mvr8) then
           xr8(jc,jr) = dat%xr8(ic,ir) * cfr8
         end if

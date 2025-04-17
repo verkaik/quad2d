@@ -15,7 +15,7 @@ module main_module
   use quad2dModule, only: tQuads, tQuad, tIntf, tNbrIntf, &
     tLayerModels, tLayerModel, tDataModels, tDataModel, tDataModelData, &
     tProps, get_number_of_levels, get_refinement_level, &
-    i_lid, i_gid, i_i_graph, i_lay_mod,  &
+    i_lid, i_gid, i_i_graph, i_lay_mod, i_dat_mod, &
     i_tgt_cs_min, i_tgt_cs_min_lay_beg, i_tgt_cs_min_lay_end, i_tgt_cs_min_dz_top, &
     i_tgt_cs_max, i_head, i_merge, n_prop_field, &
     tMF6Disu, mf6_data_write, tMF6Exchange, valid_icir
@@ -50,8 +50,8 @@ module main_module
   !
   character(len=MXSLEN), dimension(:), allocatable :: args, csv_val
   character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_in_csv_merge, f_out_csv, f_part_csv
-  character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post
-  character(len=MXSLEN) :: f_mod_def_inp, f_lay_mod_csv, fp
+  character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post, f_lay_mod_output_csv
+  character(len=MXSLEN) :: f_mod_def_inp, f_lay_coupling_csv, f_lay_mod_csv, f_dat_mod_csv, fp
   character(len=MXSLEN) :: d_in, uuid_in, uuid_out
   character(len=MXSLEN) :: f_gid_in, f_gid_out, f_gid_mask
   character(len=MXSLEN) :: mod_root_dir, xch_root_dir, mod_sub_dir_fields, xch_id_field
@@ -65,7 +65,7 @@ module main_module
   character(len=MXSLEN) :: f_in_flt, f_in_vrt_1, f_in_vrt_2, f_out_vrt, post_fix
   character(len=MXSLEN) :: f_exe
   character(len=MXSLEN) :: elapsed_line
-  character(len=MXSLEN) :: vtk_lid, vtk_csv
+  character(len=MXSLEN) :: vtk_lid
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -101,7 +101,6 @@ module main_module
   real(R8B) :: elsec
   !
   integer(I4B) :: kper_beg, kper_end, tile_nc, tile_nr
-  character(len=MXSLEN) :: head_layers
   !
   save
   
@@ -193,7 +192,9 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv, cv_def='')
     !
-    call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
     !
     call ini%get_val(sect, 'lid_field',       cv=fields(i_lid),     cv_def='lid')
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
@@ -221,7 +222,9 @@ subroutine quad_settings()
       f_out_csv = trim(strip_ext(f_out_csv))//trim(args(5))//'.csv'
     end if
     !
-    call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
     !
     call ini%get_val(sect, 'lid_field',       cv=fields(i_lid),     cv_def='lid')
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
@@ -282,12 +285,17 @@ subroutine quad_settings()
       call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge)
     end if
     !
-    call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
     !
+    call ini%get_val(sect, 'f_dat_mod_csv', cv=f_dat_mod_csv)
+    call ini%get_val(sect, 'dat_mod_field', cv=fields(i_dat_mod))
+    
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
     call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
-    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
     !
     call ini%get_val(sect, 'mod_root_dir', cv=mod_root_dir)
     call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='')
@@ -322,14 +330,17 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
     call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge, cv_def='')
     !
-    call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
-    call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
+    !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
+    !
+    call ini%get_val(sect, 'f_lay_mod_output_csv', cv=f_lay_mod_output_csv)
     !
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
     call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
     call ini%get_val(sect, 'head_field',       cv=fields(i_head))
-    call ini%get_val(sect, 'head_layers',      cv=head_layers)
     !
     call ini%get_val(sect, 'kper_beg', i4v=kper_beg, i4v_def=1)
     call ini%get_val(sect, 'kper_end', i4v=kper_end, i4v_def=1)
@@ -347,7 +358,6 @@ subroutine quad_settings()
     end if
     !
     call ini%get_val(sect, 'vtk_lid',cv=vtk_lid, cv_def='')
-    call ini%get_val(sect, 'vtk_csv',cv=vtk_csv, cv_def='')
   case('mf6_post_wtd')
     !=========!
     run_opt = 20
@@ -4105,7 +4115,7 @@ subroutine get_mask(xid, id, bb, mask)
   n = 0
   do ir = bb%ir0, bb%ir1
     do ic = bb%ic0, bb%ic1
-      if (xid(ic,ir) == id) then
+      if (abs(xid(ic,ir)) == id) then
         n = n + 1
         jr = ir - bb%ir0 + 1; jc = ic - bb%ic0 + 1
         mask(jc,jr) = 1
@@ -4468,70 +4478,47 @@ subroutine quad_balancing()
   return
 end subroutine quad_balancing
 
-subroutine quad_init_models(set_dat_mod)
+subroutine quad_init_layer_models()
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
   ! -- dummy
-  logical, intent(in), optional :: set_dat_mod
   ! -- local
   character(len=1), dimension(2), parameter :: comment = [';','#']
-  !
   type(tLayerModel),  pointer :: lay_mod  => null()
   type(tLayerModels), pointer :: lay_mods => null()
-  type(tDataModel),   pointer :: dat_mod  => null()
-  type(tDataModels),  pointer :: dat_mods => null()
-  logical :: lfound, lread, lcompress, set_dat_mod_loc, ldone_zp
-  character(len=MXSLEN) :: f, s, s1, slc, ext
-  character(len=MXSLEN), dimension(:), allocatable :: keys, fz, sa, fdat
+  type(tCSV), pointer :: csv
+  
+  logical :: lfound, lread, lcompress, ldone_zp
+  character(len=MXSLEN) :: f, ft, s, s1, slc, ext
+  character(len=MXSLEN), dimension(:), allocatable :: keys, fz, sa
   integer(I4B), dimension(:), allocatable :: nlay
-  integer(I4B) :: ios, n_inp_mod, n_dat, ilm, ju
+  integer(I4B) :: ios, n_inp_mod, n_dat, ilm, ju, ir
 ! ------------------------------------------------------------------------------
-  !
-  if (present(set_dat_mod)) then
-    set_dat_mod_loc = set_dat_mod
-  else
-    set_dat_mod_loc = .true.
-  end if
-  !
-  call open_file(f_mod_def_inp, iu, 'r')
-  call read_line(iu, f, ios, comment)
   !
   allocate(xq%lay_mods)
   lay_mods => xq%lay_mods
-  call lay_mods%init(f)
+  call lay_mods%init(f_lay_coupling_csv)
   call lay_mods%get(lookup_keys=keys, nlay=nlay, n_inp_mod=n_inp_mod)
   !
-  if (set_dat_mod_loc) then
-    allocate(xq%dat_mods)
-    dat_mods => xq%dat_mods
-    call dat_mods%init(n_inp_mod)
-  end if
-  !
-  allocate(fdat(2))
+  allocate(csv)
+  call csv%read(f_lay_mod_csv)
+  
   do i = 1, n_inp_mod
+    ir = csv%get_row(keys(i), 'id')
+    if (ir <= 0) then
+      call errmsg('quad_init_layer_models: could not find id '//trim(keys(i))// &
+        ' in file '//trim(f_lay_mod_csv)//'.')
+    end if
+    call csv%get_val(ir=ir, ic=csv%get_col('file'), cv=f)
+    call csv%get_val(ir=ir, ic=csv%get_col('file_type'), cv=ft)
+    
     if (allocated(fz)) deallocate(fz)
     allocate(fz(nlay(i)+1))
-    !
-    ! read the model ID
-    call read_line(iu, s1, ios, comment)
-    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
-    !
-    slc = change_case(adjustl(s1),'l')
-    if (trim(slc) == trim(keys(i))) then
-      lfound = .true.
-    else 
-      call errmsg('quad_init_layer_models: could not find data'//&
-        ' for layer model '//trim(keys(i))//'.')
-    end if
-    !
-    ! read the zp definition file
-    call read_line(iu, f, ios, comment)
-    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
-    ext = get_ext(f)
-    select case(ext)
-    case('.txt')
+    
+    select case(ft)
+    case('vrta')
       lcompress = .false.
       call open_file(f, ju, 'r')
       n = 0
@@ -4548,96 +4535,17 @@ subroutine quad_init_models(set_dat_mod)
       if (n /= (nlay(i)+1)) then
         call errmsg('Error reading: '//trim(f)//'.')
       end if
-    case('.vrt')
+    case('vrt')
       lcompress = .true.
       fz(1) = f
     case default
       call errmsg('Unrecognized filetype: '//trim(f))
     end select
     !
-    call read_line(iu, fdat(1), ios, comment)
-    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
-    call read_line(iu, fdat(2), ios, comment)
-    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
-    
     ! set the data 
     lay_mod => lay_mods%lay_mods(i)
     call lay_mod%init(keys(i), nlay(i), fz, lcompress)
-    !
-    if (set_dat_mod_loc) then
-      dat_mod => dat_mods%dat_mods(i)
-      call dat_mod%init(keys(i), fdat(1), fdat(2), n_inp_mod)
-    end if
   end do
-  !
-  close(iu)
-  !
-  ! determine the unique mappings
-  if (set_dat_mod_loc) then
-    call xq%dat_mods%create_uni_map()
-  end if
-  !
-  !allocate(fdat(2))
-  !do i = 1, n_inp_mod
-  !  rewind(iu); lread = .false.; lfound = .false.; lcompress = .false.
-  !  !
-  !  if (allocated(fz)) deallocate(fz)
-  !  allocate(fz(nlay(i)+1)); n = 0
-  !  !
-  !  do while(.true.)
-  !    read(unit=iu,iostat=ios,fmt='(a)') s
-  !    if (ios /= 0) exit
-  !    if (len_trim(s) == 0) cycle
-  !    !
-  !    call split_str(s, ' ', sa)
-  !    s1 = sa(1)
-  !    !
-  !    if (s1(1:1) == '#') cycle
-  !    !
-  !    if (lread) then
-  !      if (n_dat > 0) then
-  !        fdat(n_dat) = s
-  !      else
-  !        n = n + 1; fz(n) = s
-  !      end if
-  !      ldone_zp = .false.
-  !      if (lcompress) ldone_zp = .true.
-  !      if (n == nlay(i)+1) ldone_zp = .true.
-  !      if (ldone_zp) then
-  !        n_dat = n_dat + 1
-  !      end if
-  !      if (n_dat > 2) lread = .false.
-  !    end if
-  !    !
-  !    slc = change_case(adjustl(s1),'l')
-  !    if (trim(slc) == trim(keys(i))) then
-  !      lread = .true.; lfound = .true.; lcompress = .false.
-  !      n_dat = 0
-  !      if (size(sa) >  1) then
-  !        slc = change_case(adjustl(sa(2)),'l')
-  !        if (trim(slc) == 'compressed') then
-  !          lcompress = .true.
-  !        end if
-  !      end if
-  !    end if
-  !  end do
-  !  !
-  !  if (.not.lfound) then
-  !    call errmsg('quad_init_layer_models: could not find data'//&
-  !      ' for layer model '//trim(keys(i))//'.')
-  !  end if
-  !  !
-  !  ! set the data 
-  !  lay_mod => lay_mods%lay_mods(i)
-  !  call lay_mod%init(keys(i), nlay(i), fz, lcompress)
-  !  !
-  !  if (set_dat_mod_loc) then
-  !    dat_mod => dat_mods%dat_mods(i)
-  !    call dat_mod%init(keys(i), fdat(1), fdat(2))
-  !  end if
-  !end do
-  !!
-  !close(iu)
   !
   do i = 1, xq%n
     q => xq%get_quad(i)
@@ -4645,23 +4553,177 @@ subroutine quad_init_models(set_dat_mod)
       q%lay_mods => lay_mods
     end if
   end do
-  
-  if (set_dat_mod_loc) then
-    do i = 1, xq%n
-      q => xq%get_quad(i)
-      if (q%get_flag(active=LDUM)) then
-        call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm)
-        q%dat_mod => dat_mods%dat_mods(ilm)
-      end if
-    end do
-  end if
   !
   if (allocated(fz)) deallocate(fz)
-  if (allocated(fdat)) deallocate(fdat)
-  !call lay_mods%clean()
+  call csv%clean(); deallocate(csv); csv => null()
   !
   return
-end subroutine quad_init_models
+end subroutine quad_init_layer_models
+
+subroutine quad_init_data_models()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- dummy
+  ! -- local
+  type(tDataModel),   pointer :: dat_mod  => null()
+  type(tDataModels),  pointer :: dat_mods => null()
+  
+  character(len=MXSLEN) :: cdm
+  integer(I4B) :: i
+! ------------------------------------------------------------------------------
+  !
+  allocate(xq%dat_mods)
+  dat_mods => xq%dat_mods
+  call dat_mods%init(f_dat_mod_csv)
+  !
+  ! determine the unique mappings
+  call xq%dat_mods%create_uni_map()
+   
+  do i = 1, xq%n
+    q => xq%get_quad(i)
+    if (q%get_flag(active=LDUM)) then
+      call q%get_prop_csv(ikey=i_dat_mod, cv=cdm)
+      q%dat_mod => dat_mods%get_dm_ptr(cdm)
+    end if
+  end do
+  !
+  return
+end subroutine quad_init_data_models
+
+!subroutine quad_init_models(set_dat_mod)
+!! ******************************************************************************
+!!
+!!    SPECIFICATIONS:
+!! ------------------------------------------------------------------------------
+!  ! -- dummy
+!  logical, intent(in), optional :: set_dat_mod
+!  ! -- local
+!  character(len=1), dimension(2), parameter :: comment = [';','#']
+!  !
+!  type(tLayerModel),  pointer :: lay_mod  => null()
+!  type(tLayerModels), pointer :: lay_mods => null()
+!  type(tDataModel),   pointer :: dat_mod  => null()
+!  type(tDataModels),  pointer :: dat_mods => null()
+!  logical :: lfound, lread, lcompress, set_dat_mod_loc, ldone_zp
+!  character(len=MXSLEN) :: f, s, s1, slc, ext
+!  character(len=MXSLEN), dimension(:), allocatable :: keys, fz, sa, fdat
+!  integer(I4B), dimension(:), allocatable :: nlay
+!  integer(I4B) :: ios, n_inp_mod, n_dat, ilm, ju
+!! ------------------------------------------------------------------------------
+!  !
+!  if (present(set_dat_mod)) then
+!    set_dat_mod_loc = set_dat_mod
+!  else
+!    set_dat_mod_loc = .true.
+!  end if
+!  !
+!  call open_file(f_mod_def_inp, iu, 'r')
+!  call read_line(iu, f, ios, comment)
+!  !
+!  allocate(xq%lay_mods)
+!  lay_mods => xq%lay_mods
+!  call lay_mods%init(f)
+!  call lay_mods%get(lookup_keys=keys, nlay=nlay, n_inp_mod=n_inp_mod)
+!  !
+!  if (set_dat_mod_loc) then
+!    allocate(xq%dat_mods)
+!    dat_mods => xq%dat_mods
+!    call dat_mods%init(n_inp_mod)
+!  end if
+!  !
+!  allocate(fdat(2))
+!  do i = 1, n_inp_mod
+!    if (allocated(fz)) deallocate(fz)
+!    allocate(fz(nlay(i)+1))
+!    !
+!    ! read the model ID
+!    call read_line(iu, s1, ios, comment)
+!    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
+!    !
+!    slc = change_case(adjustl(s1),'l')
+!    if (trim(slc) == trim(keys(i))) then
+!      lfound = .true.
+!    else 
+!      call errmsg('quad_init_layer_models: could not find data'//&
+!        ' for layer model '//trim(keys(i))//'.')
+!    end if
+!    !
+!    ! read the zp definition file
+!    call read_line(iu, f, ios, comment)
+!    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
+!    ext = get_ext(f)
+!    select case(ext)
+!    case('.txt')
+!      lcompress = .false.
+!      call open_file(f, ju, 'r')
+!      n = 0
+!      do while(.true.)
+!        call read_line(ju, f, ios, comment)
+!        if (ios /= 0) exit
+!        if (len_trim(f) > 0) then
+!          n = n + 1
+!          fz(n) = f
+!        end if
+!      end do
+!      close(ju)
+!      !
+!      if (n /= (nlay(i)+1)) then
+!        call errmsg('Error reading: '//trim(f)//'.')
+!      end if
+!    case('.vrt')
+!      lcompress = .true.
+!      fz(1) = f
+!    case default
+!      call errmsg('Unrecognized filetype: '//trim(f))
+!    end select
+!    !
+!    call read_line(iu, fdat(1), ios, comment)
+!    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
+!    call read_line(iu, fdat(2), ios, comment)
+!    if (ios /= 0) call errmsg('Could not read '//trim(f_mod_def_inp)//'.')
+!    
+!    ! set the data 
+!    lay_mod => lay_mods%lay_mods(i)
+!    call lay_mod%init(keys(i), nlay(i), fz, lcompress)
+!    !
+!    if (set_dat_mod_loc) then
+!      dat_mod => dat_mods%dat_mods(i)
+!      call dat_mod%init(keys(i), fdat(1), fdat(2), n_inp_mod)
+!    end if
+!  end do
+!  !
+!  close(iu)
+!  !
+!  ! determine the unique mappings
+!  if (set_dat_mod_loc) then
+!    call xq%dat_mods%create_uni_map()
+!  end if
+!  !
+!  do i = 1, xq%n
+!    q => xq%get_quad(i)
+!    if (q%get_flag(active=LDUM)) then
+!      q%lay_mods => lay_mods
+!    end if
+!  end do
+!  
+!  if (set_dat_mod_loc) then
+!    do i = 1, xq%n
+!      q => xq%get_quad(i)
+!      if (q%get_flag(active=LDUM)) then
+!        call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm)
+!        q%dat_mod => dat_mods%dat_mods(ilm)
+!      end if
+!    end do
+!  end if
+!  !
+!  if (allocated(fz)) deallocate(fz)
+!  if (allocated(fdat)) deallocate(fdat)
+!  !call lay_mods%clean()
+!  !
+!  return
+!end subroutine quad_init_models
 
 subroutine quad_layer_models_interface()
 ! ******************************************************************************
@@ -4947,67 +5009,6 @@ subroutine quad_mf6_xch_write_merge()
   !
   return
 end subroutine quad_mf6_xch_write_merge
-
-subroutine quad_mf6_data_write_old()
-! ******************************************************************************
-!
-!    SPECIFICATIONS:
-  ! -- local
-  character(len=MXSLEN) :: d, f_log
-  logical :: writelog
-  integer(I4B) :: lid0, lid1, n_act, iu
-! ------------------------------------------------------------------------------
-  ! set the ranges
-  if (lid_min > 0) then
-     lid0 = max(1,lid_min)
-  else
-    lid0 = 1
-  end if
-  if (lid_max > 0) then
-     lid1 = min(xq%n,lid_max)
-  else
-    lid1 = xq%n
-  end if
-  if (lid0 > lid1) then
-    call errmsg('quad_mf6_data_write: lid_min > lid_max.')
-  end if
-  !
-  ! determine total number of active quads
-  n_act = 0
-  do lid = lid0, lid1
-    if (q%get_flag(active=LDUM)) n_act = n_act + 1
-  end do
-  !
-  if (len_trim(d_log) > 0) then
-    writelog = .true.
-    d = trim(d_log)
-    call create_dir(d, .true.)
-  else
-    writelog = .false.
-  end if
-  !
-  n = 0
-  do lid = lid0, lid1
-    q => xq%get_quad(lid)
-    !
-    ! DEBUG:
-    !if (q%gid /= 637452) cycle
-    !
-    if (q%get_flag(active=LDUM)) then
-      call logmsg('***** Processing quad '//ta([q%gid])//' *****')
-      call q%mf6_write_data()
-      n = n + 1
-      call logmsg('***** '//ta([100.*real(n,R4B)/n_act],'(f6.2)')//' % *****')
-      if (writelog) then
-        f_log = trim(d)//'done_lid_'//ta([lid],'(i10.10)')//'.txt'
-        call open_file(f_log, iu, 'w'); close(iu)
-      end if
-    end if
-    !
-  end do
-  !
-  return
-end subroutine quad_mf6_data_write_old
   
 subroutine quad_mf6_data_write()
 ! ******************************************************************************
@@ -5100,12 +5101,12 @@ subroutine quad_mf6_data_write_merge()
   !
   logical :: li4a, lr8a, lr8x, lfirst, lwritelog
   !
-  character(len=MXSLEN) :: d, f_csv_dat, f_binpos, f_log, id_pref, id
+  character(len=MXSLEN) :: d, f_csv_dat, f_binpos, f_log, id_pref, id, cdm
   character(len=MXSLENLONG) :: s_long
   !
   integer(I4B), dimension(:), allocatable :: im_arr, lid_arr, qi4a, i4a
   integer(I4B), dimension(:), allocatable ::  nodesa, nodesa_offset
-  integer(I4B) :: im, im0, im1, nim, nlid, idat, i, j, k, ilm, nodes_sum
+  integer(I4B) :: im, im0, im1, nim, nlid, idat, i, j, k, idm, nodes_sum
   integer(I4B) :: nodes, nodes_im, n, m, ndat_q, ndat, ic, ir, nc
   integer(I4B) :: i_out_file_type, iu, nr_max
   !
@@ -5207,8 +5208,9 @@ subroutine quad_mf6_data_write_merge()
       do j = 1, nlid
         lid = lid_arr(j)
         q => xq%get_quad(lid)
-        call q%get_prop_csv(ikey=i_lay_mod, i4v=ilm)
-        idat = xq%dat_mods%uni_map_ir(ilm, i)
+        call q%get_prop_csv(ikey=i_dat_mod, cv=cdm)
+        idm = xq%dat_mods%get_dm_idx(cdm)
+        idat = xq%dat_mods%uni_map_ir(idm, i)
         if (idat > 0) then
           !
           call q%dat_mod%get_dat(idat, dmdat)
@@ -5352,7 +5354,7 @@ subroutine quad_grid_gen()
   !
   character(len=1) :: slash
   character(len=MXSLEN) :: f_csv_dat, f_binpos, s_lay_act
-  logical :: lactive, lskip, lwrite
+  logical :: lactive, lskip, lwrite, lok
   integer(I4B), dimension(:), allocatable :: lay, lid_map, lid_arr
   integer(I4B) :: ncell_tot, ncell, nja, nlay_act, ngrid, write_csv_delta
   integer(I4B) :: lid0, lid1, n_act, i, n
@@ -5413,6 +5415,11 @@ subroutine quad_grid_gen()
   n = 0
   slash = get_slash()
   do lid = 1, xq%n
+    !if (lid /= 3) then
+    !  write(*,*) '@@@@@@@'
+    !  cycle
+    !end if
+    
     q => xq%get_quad(lid)
     lactive = q%get_flag(active=LDUM)
     !
@@ -5447,7 +5454,16 @@ subroutine quad_grid_gen()
         end if
         !
         ! call the main grid generation subroutine
-        call q%grid_gen(nlay_act, lay, lskip, disu)
+        call q%grid_gen(nlay_act, lay, lskip, disu, lok)
+        if (.not.lok) then
+          call logmsg('********** SKIPPING QUAD *********')
+          call q%set_flag(active=.false.)
+          if (lwrite) then
+            call q%set_prop_csv(key='cs_min_rea', r8v=disu%cs_min_rea)
+            call q%set_prop_csv(key='cs_max_rea', r8v=disu%cs_max_rea)
+          end if
+          cycle
+        end if
         !
         if (lwrite_disu) then
           if (lwrite_asc) then
@@ -5537,7 +5553,7 @@ subroutine quad_grid_gen_merge()
   type(tMF6Disu), pointer :: disu => null(), disu_merge => null()
   character(len=1) :: slash
   character(len=MXSLEN) :: d, f_csv_dat, f_binpos, s_lay_act, id_pref
-  logical :: lactive, lskip
+  logical :: lactive, lskip, lok
   integer(I4B), dimension(:), allocatable :: lay, lid_arr, imerge, lid2imerge
   integer(I4B) :: lid, nim, im, im0, im1, jm, km, nlid, nlay_act, n, nodes_tot
 ! ------------------------------------------------------------------------------
@@ -5638,7 +5654,7 @@ subroutine quad_grid_gen_merge()
           call disu%init()
           !
           ! generate the seperate grid
-          call q%grid_gen(nlay_act, lay, lskip, disu)
+          call q%grid_gen(nlay_act, lay, lskip, disu, lok)
         end if
       end if
     end do
@@ -6003,11 +6019,11 @@ subroutine quad_mf6_write_heads(lmerge)
     call errmsg('quad_mf6_write_heads: lid_min > lid_max.')
   end if
   if (lmerge) then
-    call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
-      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, vtk_csv, f_in_csv_merge)
+    call xq%write_mf6_heads(lid0, lid1, kper_beg, kper_end, &
+      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv, f_in_csv_merge)
   else
-    call xq%write_mf6_heads(lid0, lid1, head_layers, kper_beg, kper_end, &
-      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, vtk_csv)
+    call xq%write_mf6_heads(lid0, lid1, kper_beg, kper_end, &
+      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv)
   end if
   !
   return
@@ -6148,7 +6164,8 @@ subroutine quad_mf6_write_wtd()
       !
       cs_min = tile_bbx%cs
       !
-      nlev = int(log(real(max_nc,R8B))/log(2.d0)) + 1
+      !nlev = int(log(real(max_nc,R8B))/log(2.d0)) + 1
+      nlev = int(nint(log(real(max_nc,R8B))/log(2.d0))) + 1 !nint fix
       if (allocated(cs_read)) deallocate(cs_read)
       allocate(cs_read(nlev))
       !
@@ -6186,7 +6203,8 @@ subroutine quad_mf6_write_wtd()
         if (n /= mvnode) then
           i = n - node_min + 1
           bs = bbi_arr(i)%ncol
-          ilev = int(log(real(bs,R8B))/log(2.d0)) + 1
+          ! ilev = int(log(real(bs,R8B))/log(2.d0)) + 1
+          ilev = int(nint(log(real(bs,R8B))/log(2.d0))) + 1 !nint fix
           g_ahn => mg_ahn%grid(ilev)
           call  get_xy(xc, yc, ic, ir, tile_bbx%xll, tile_bbx%yur, cs_min)
           call get_icr(jc, jr, xc, yc, tile_bbx%xll, tile_bbx%yur, cs_read(ilev))
@@ -6286,7 +6304,7 @@ program quad2d
   if (run_opt == 3) then
     call quad_clean()
     call quad_read('.intf.bin')
-    call quad_init_models()
+    call quad_init_layer_models()
     call quad_layer_models_interface()
   end if
   !
@@ -6297,7 +6315,7 @@ program quad2d
     if (lwrite_disu) then
       call quad_set_mod_dir()
     end if
-    call quad_init_models()
+    call quad_init_layer_models()
     call quad_grid_gen()
   end if
   !
@@ -6305,7 +6323,7 @@ program quad2d
   if (run_opt == 17) then
     call quad_clean()
     call quad_read('.intf.lm.bin', read_vintf=.true.)
-    call quad_init_models()
+    call quad_init_layer_models()
     call quad_grid_gen_merge()
   end if
   !
@@ -6326,10 +6344,11 @@ program quad2d
   ! mf6_data_write
   if (run_opt == 6) then
     call quad_clean()
-    call quad_read()
+    !call quad_read()
+    call quad_read(fp_intf='.intf.lm.bin', read_vintf=.false.)
     call quad_set_mod_dir()
-    call quad_init_models(set_dat_mod=.true.)
-    !call quad_mf6_data_write_old()
+    call quad_init_layer_models()
+    call quad_init_data_models()
     call quad_mf6_data_write()
   end if
   !
@@ -6337,7 +6356,8 @@ program quad2d
   if (run_opt == 18) then
     call quad_clean()
     call quad_read()
-    call quad_init_models(set_dat_mod=.true.)
+    call quad_init_layer_models()
+    call quad_init_data_models()
     call quad_mf6_data_write_merge()
   end if
   !
@@ -6353,11 +6373,11 @@ program quad2d
     if (write_chd) then
       call quad_set_mod_dir()
     end if
-    call quad_init_models(set_dat_mod=.false.)
+    call quad_init_layer_models()
     if (write_chd) then
       call quad_mf6_write_chd()
     else
-      if (len_trim(f_in_csv) > 0) then
+      if (len_trim(f_in_csv_merge) > 0) then
         call quad_mf6_write_heads(lmerge=.true.)
       else
         call quad_mf6_write_heads(lmerge=.false.)

@@ -738,11 +738,13 @@ module vtk_module
       sa(2) = ta([dst%timestep])
       do ip = 1, dst%npart
         dsp => dst%dspart(ip)
-        sa(4) = ta([ip])
-        sa(6) = trim(dsp%partname)
-        sa(8) = trim(dsp%f_vtu)
-        s = ta(sa,trim_sep=.true.)
-        write(iu,'(a)') trim(s)
+        if (len_trim(dsp%f_vtu) > 0) then
+          sa(4) = ta([ip])
+          sa(6) = trim(dsp%partname)
+          sa(8) = trim(dsp%f_vtu)
+          s = ta(sa,trim_sep=.true.)
+          write(iu,'(a)') trim(s)
+        end if
       end do
     end do
     write(iu,'(a)') '</Collection>'

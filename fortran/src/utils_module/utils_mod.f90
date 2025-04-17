@@ -394,6 +394,8 @@ module utilsmod
     integer(I4B) :: nc = 0
     integer(I4B) :: nr = 0
     !
+    integer(I4B) :: n_int_mv = 0
+    !
     type(tBBx) :: bbx
     !
     integer(I1B), dimension(:,:), allocatable :: xi1
@@ -412,10 +414,14 @@ module utilsmod
     !
     integer(I4B)                              :: nmask
     integer(I4B), dimension(:,:), allocatable :: mask
+    
+    integer(I4B), dimension(:,:), allocatable :: icir_int_mv
   contains
     procedure :: set_const     => tGrid_set_const
     procedure :: set_mv        => tGrid_set_mv
     procedure :: set_arr       => tGrid_set_arr
+    procedure :: set_int_mv          => tGrid_set_int_mv
+    procedure :: set_int_mv_from_xi4 => tGrid_set_int_mv_from_xi4
     procedure :: set_val       => tGrid_set_val
     procedure :: set_nod_dat   => tGrid_set_nod_dat
     procedure :: get           => tGrid_get
@@ -1924,6 +1930,63 @@ module utilsmod
     return
   end subroutine tGrid_set_arr
     
+  subroutine tGrid_set_int_mv(this, icir_mv)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tGrid) :: this
+    integer(I4B), dimension(:,:), intent(in) :: icir_mv
+    ! -- local
+    integer(I4B) :: i, n
+! ------------------------------------------------------------------------------
+    n = size(icir_mv,2)
+    this%n_int_mv = n
+    allocate(this%icir_int_mv(2,n))
+    do i = 1, n
+      this%icir_int_mv(1,i) = icir_mv(1,i)
+      this%icir_int_mv(2,i) = icir_mv(2,i)
+    end do
+    !
+    return
+  end subroutine tGrid_set_int_mv
+  
+  subroutine tGrid_set_int_mv_from_xi4(this)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tGrid) :: this
+    ! -- local
+    integer(I4B) :: ic, ir, n
+! ------------------------------------------------------------------------------
+    !
+    n = 0
+    do ir = 1, this%nr; do ic = 1, this%nc
+      if (this%xi4(ic,ir) < 0) then
+        n = n + 1
+      end if
+    end do; end do
+    !
+    if (n > 0) then
+      allocate(this%icir_int_mv(2,n))
+      this%icir_int_mv = 0
+      this%n_int_mv = n
+      n = 0
+      do ir = 1, this%nr; do ic = 1, this%nc
+        if (this%xi4(ic,ir) < 0) then
+          n = n + 1
+          this%icir_int_mv(1,n) = ic
+          this%icir_int_mv(2,n) = ir
+        end if
+      end do; end do
+    end if
+    !
+    return
+  end subroutine tGrid_set_int_mv_from_xi4
+  
   subroutine tGrid_set_val(this, icir, i1v, i2v, i4v, i8v, r4v, r8v)
 ! ******************************************************************************
 !
@@ -1988,6 +2051,7 @@ module utilsmod
     class(tGrid) :: this
     ! -- local
     integer(I4B), dimension(:), allocatable :: wk
+    integer(I4B), dimension(:,:), allocatable :: wk2d
     integer(I4B) :: il, ir, ic, nc, nr, n, i
 ! ------------------------------------------------------------------------------
     !
@@ -1996,12 +2060,23 @@ module utilsmod
     !
     this%nnod_dat = 0
     !
+    ! label the external boundary nodes
+    allocate(wk2d(nc,nr))
+    wk2d = 0
+    do i = 1, this%n_int_mv
+      ic = this%icir_int_mv(1,i); ir = this%icir_int_mv(2,i)
+      wk2d(ic,ir) = 1
+    end do
+    !
     if (allocated(this%xi1)) then
       if(.not.allocated(this%mvi1)) call errmsg('tGrid_set_nod_dat: i1')
       do ir = 1, nr; do ic = 1, nc
         if (this%xi1(ic,ir) /= this%mvi1) then
           this%nnod_dat = this%nnod_dat + 1; n = this%nnod_dat
           call icrl_to_node(wk(n), ic, ir, il, nc, nr)
+          if (wk2d(ic,ir) == 1) then
+            wk(n) = -abs(wk(n))
+          end if
         end if
       end do; end do
     end if
@@ -2011,6 +2086,9 @@ module utilsmod
         if (this%xi2(ic,ir) /= this%mvi2) then
           this%nnod_dat = this%nnod_dat + 1; n = this%nnod_dat
           call icrl_to_node(wk(n), ic, ir, il, nc, nr)
+          if (wk2d(ic,ir) == 1) then
+            wk(n) = -abs(wk(n))
+          end if
         end if
       end do; end do
     end if
@@ -2020,6 +2098,9 @@ module utilsmod
         if (this%xi4(ic,ir) /= this%mvi4) then
           this%nnod_dat = this%nnod_dat + 1; n = this%nnod_dat
           call icrl_to_node(wk(n), ic, ir, il, nc, nr)
+          if (wk2d(ic,ir) == 1) then
+            wk(n) = -abs(wk(n))
+          end if
         end if
       end do; end do
     end if
@@ -2029,6 +2110,9 @@ module utilsmod
         if (this%xi8(ic,ir) /= this%mvi8) then
           this%nnod_dat = this%nnod_dat + 1; n = this%nnod_dat
           call icrl_to_node(wk(n), ic, ir, il, nc, nr)
+          if (wk2d(ic,ir) == 1) then
+            wk(n) = -abs(wk(n))
+          end if
         end if
       end do; end do
     end if
@@ -2038,6 +2122,9 @@ module utilsmod
         if (this%xr4(ic,ir) /= this%mvr4) then
           this%nnod_dat = this%nnod_dat + 1; n = this%nnod_dat
           call icrl_to_node(wk(n), ic, ir, il, nc, nr)
+          if (wk2d(ic,ir) == 1) then
+            wk(n) = -abs(wk(n))
+          end if
         end if
       end do; end do
     end if
@@ -2047,12 +2134,17 @@ module utilsmod
         if (this%xr8(ic,ir) /= this%mvr8) then
           this%nnod_dat = this%nnod_dat + 1; n = this%nnod_dat
           call icrl_to_node(wk(n), ic, ir, il, nc, nr)
+          if (wk2d(ic,ir) == 1) then
+            wk(n) = -abs(wk(n))
+          end if
         end if
       end do; end do
     end if
     !
     if (this%nnod_dat == 0) then
-      deallocate(wk); return
+      deallocate(wk)
+      deallocate(wk2d)
+      return
     else
       if (allocated(this%nod_dat)) deallocate(this%nod_dat)
       allocate(this%nod_dat(this%nnod_dat))
@@ -2060,6 +2152,7 @@ module utilsmod
         this%nod_dat(i) = wk(i)
       end do
       deallocate(wk)
+      deallocate(wk2d)
     end if
     !
     return
@@ -2097,7 +2190,7 @@ module utilsmod
     integer(I4B), intent(out) :: n
     
     ! -- local
-    integer(I4B) :: i, ic, ir, il
+    integer(I4B) :: i, ic, ir, il, nod
 ! ------------------------------------------------------------------------------
     !
     if (allocated(icir)) deallocate(icir)
@@ -2106,11 +2199,16 @@ module utilsmod
     allocate(icir(2,n))
     !
     do i = 1, n
-      call node_to_icrl(this%nod_dat(i), ic, ir, il, nc, nr)
+      nod = this%nod_dat(i)
+      call node_to_icrl(abs(nod), ic, ir, il, nc, nr)
       if ((il /= 1).or.(ic < 1).or.(ic > nc).or.(ir < 1).or.(ir > nr)) then
         call errmsg('tGrid_set_nod_dat: ic/ir/il out of range.')
       else
-        icir(1,i) = ic; icir(2,i) = ir
+        if (nod > 0) then
+          icir(1,i) = ic; icir(2,i) = ir
+        else
+          icir(1,i) = -ic; icir(2,i) = -ir
+        end if
       end if
     end do
     !
@@ -2141,6 +2239,7 @@ module utilsmod
     this%nnod_dat    = 0
     this%nc          = 0
     this%nr          = 0
+    this%n_int_mv    = 0
     call this%bbx%init()
     !
     call this%set_mv(mvi1, mvi2, mvi4, mvi8, mvr4, mvr8)
@@ -2217,6 +2316,9 @@ module utilsmod
     if (allocated(this%mvr4)) deallocate(this%mvr4)
     if (allocated(this%mvr8)) deallocate(this%mvr8)
     !
+    if (allocated(this%icir_int_mv)) deallocate(this%icir_int_mv)
+    this%n_int_mv = 0
+    
     return
   end subroutine tGrid_clean_xi
   
