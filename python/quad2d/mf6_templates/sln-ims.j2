@@ -35,7 +35,8 @@ end nonlinear
 begin linear
   inner_maximum {{inner_maximum}}
   inner_dvclose {{inner_dvclose}}
-  inner_rclose {{inner_rclose}}{% if rclose_option is defined %} {{rclose_option}}{% endif %}
+  inner_rclose {{inner_rclose}}
+{% if rclose_option is defined %}  rclose_option {{rclose_option}}{% endif %}
   linear_acceleration {{linear_acceleration}}
 {% if relaxation_factor is defined %}  relaxation_factor {{relaxation_factor}}
 {% endif %}

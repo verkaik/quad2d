@@ -50,7 +50,7 @@ clp.add_argument('-mpi', '--mpi', type=str, \
 clp.add_argument('-np', '--np', type=int, default=1,
                 help='Number of MPI processes.')
 clp.add_argument('-mf6', '--mf6', type=str,
-                default=r'c:\Users\verkaik_jo\data\codes\git\modflow6-parallel-fork-18-03-21\bin\mf6.exe',
+                default=r'c:\data\codes\git\modflow6-parallel-fork-18-03-21\bin\mf6.old.exe',
                 help='MODFLOW 6 executable.')
 clp.add_argument('-mfsim', '--mfsim', type=str,
                 default=r'mfsim.nam',
@@ -75,7 +75,11 @@ clp.add_argument('-cgc', '--cgc', action='store_true', default=False,
 clp.add_argument('-cgc_solver', '--cgc_solver', type=int, default=1,
                 help='Coarse grid correction solver (1: LU; 2: ILU(0)).')
 clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
+
+#args = '-ini hegewarren.ini -pre -run -coupled -parallel -np 2 -runopt ss'
+#cla = clp.parse_args(args.split()).__dict__
 cla = clp.parse_args().__dict__
+
 log.info(10*'='+' BEGIN command line arguments '+10*'=')
 for key in cla:
     log.info('%s: %s'%(key,str(cla[key])))
@@ -373,12 +377,12 @@ def determine_periods(section, d_mod_ini, d_mod_csv):
             if len(set(file_list)) != 1:
                 merge = False
     else:
-        merge = True
+        merge = False
         #
         # merge in case there is only 1 input per stress period
-        for iper in dsp_ini.keys():
-            if (len(dsp_ini[iper]) > 1):
-                merge = False
+        #for iper in dsp_ini.keys():
+        #    if (len(dsp_ini[iper]) > 1):
+        #        merge = False
     #
     if merge:
         d.append({})
@@ -966,7 +970,7 @@ def mf6_model_admin(d_ini, d_xch, mf6_mod_lst):
     return d_mf6_mod
 
 #############################################################################
-def write_model(id, d_ini, d_props, d_mod_ini_list, d_template, \
+def write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
     single_model, rep_dict):
 #############################################################################
     log.info(f'Writing MODFLOW 6 model files for id={id}...')
@@ -976,10 +980,10 @@ def write_model(id, d_ini, d_props, d_mod_ini_list, d_template, \
     nja       = int(get_key(d_props, str(id), 'nja'))
     #
     if single_model:
-        lay_mod = 1
+        dat_mod = list(d_mod_ini_dict.keys())[0]
     else:
-        lay_mod = get_key(d_props, str(id), 'lay_mod', eval_k=True)
-    d_mod_ini = d_mod_ini_list[lay_mod-1]
+        dat_mod = get_key(d_props, str(id), 'dat_mod', eval_k=False)
+    d_mod_ini = d_mod_ini_dict[dat_mod]
     #
     # read the file for csv_dat
     p = Path(f_csv_dat)
@@ -1081,15 +1085,21 @@ def pre():
 
     # read the model definitions
     mod_def = get_key(d_ini, '_general', 'model_definition'+'_'+ get_cla_key('runopt'), eval_k=True)
-    if len(mod_def) == 1:
+    if (isinstance(mod_def, str)):
+        d_mod_ini_dict = {}
+        d_mod_ini_dict['DUMMY'] = read_ini(mod_def)
+    else:
+        if (isinstance(mod_def, dict)):
+            d_mod_ini_dict = {}
+            for dm, f in mod_def.items():
+                d_mod_ini_dict[dm] = read_ini(f)
+        else:
+            log.error('Invalid model_definition.')
+
+    if len(d_mod_ini_dict) == 1:
         single_model = True
     else:
         single_model = False
-
-    d_mod_ini_list = []
-    for f in mod_def:
-        d_mod_ini_list.append(read_ini(f))
-
 
     # get keys for supported templates
     supp_templates = ['gwf-disu', 'gwf-npf', 'gwf-sto','gwf-ic', 'gwf-oc', 'gwf-nam', \
@@ -1110,7 +1120,7 @@ def pre():
     for id in id_list:
         i += 1
         log.info(10*'='+f' Processing {i:06d}/{n:06d} '+10*'=')
-        lst = write_model(id, d_ini, d_props, d_mod_ini_list, d_template, \
+        lst = write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
             single_model, rep_dict)
         mf6_mod_lst.extend(lst)
 
