@@ -6759,7 +6759,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
           if (mx > 0) then
             call logmsg('# point(s) found for lid '//ta((/lid/))//': '//ta((/mx/)))
             
-            nper = kper_end - kper_end + 1
+            nper = kper_end - kper_beg + 1
             if (allocated(xmap)) deallocate(xmap)
             if (allocated(nodes_read)) deallocate(nodes_read)
             if (allocated(heads_read)) deallocate(heads_read)
