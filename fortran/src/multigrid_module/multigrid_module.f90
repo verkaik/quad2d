@@ -1,7 +1,8 @@
 module multigrid_module
   
   use utilsmod, only: I1B, I2B, I4B, I8B, R4B, R8B, tGrid, tGridArr, tBbx, tBb, ta, &
-    I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, base_name, MXSLEN, errmsg, logmsg, swap_slash
+    I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, base_name, MXSLEN, errmsg, logmsg, swap_slash, &
+    R8ZERO
   use vrt_module, only: tVrt
   use hdrModule, only: writeflt
   
@@ -22,6 +23,8 @@ module multigrid_module
   !
   type, public :: tMultiGridArray
     integer(I4B) :: nmgrid
+    logical :: lconst
+    real(R8B) :: r8const
     type(tMultiGrid), dimension(:), pointer :: mga => null()
   contains
     procedure :: init      => tMultiGridArray_init
@@ -280,6 +283,8 @@ module multigrid_module
 ! ------------------------------------------------------------------------------
     call this%clean()
     this%nmgrid = nmgrid
+    this%lconst = .false.
+    this%r8const = R8ZERO
     allocate(this%mga(this%nmgrid))
     !
     return
@@ -302,6 +307,8 @@ module multigrid_module
       deallocate(this%mga)
     end if
     this%nmgrid = 0
+    this%lconst = .false.
+    this%r8const = R8ZERO
     !
     return
   end subroutine tMultiGridArray_clean

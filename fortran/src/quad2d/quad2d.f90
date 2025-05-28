@@ -52,6 +52,7 @@ module main_module
   character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_in_csv_merge, f_out_csv, f_part_csv
   character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post, f_lay_mod_output_csv
   character(len=MXSLEN) :: f_mod_def_inp, f_lay_coupling_csv, f_lay_mod_csv, f_dat_mod_csv, fp
+  character(len=MXSLEN) :: f_in_point_csv, f_out_point_csv
   character(len=MXSLEN) :: d_in, uuid_in, uuid_out
   character(len=MXSLEN) :: f_gid_in, f_gid_out, f_gid_mask
   character(len=MXSLEN) :: mod_root_dir, xch_root_dir, mod_sub_dir_fields, xch_id_field
@@ -367,6 +368,31 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_in_vrt_nod',   cv=f_in_vrt_2)
     call ini%get_val(sect, 'f_out_vrt_wtd',  cv=f_out_vrt)
     call ini%get_val(sect, 'f_out_flt_post', cv=post_fix)
+  case('mf6_post_point')
+    !=========!
+    run_opt = 22
+    !=========!
+    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
+    !
+    call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
+    call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge, cv_def='')
+    !
+    !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
+    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
+    !
+    call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
+    call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
+    call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
+    call ini%get_val(sect, 'head_field',       cv=fields(i_head))
+    !
+    call ini%get_val(sect, 'kper_beg', i4v=kper_beg, i4v_def=1)
+    call ini%get_val(sect, 'kper_end', i4v=kper_end, i4v_def=1)
+    
+    call ini%get_val(sect, 'f_in_point_csv', cv=f_in_point_csv)
+    call ini%get_val(sect, 'f_out_point_csv', cv=f_out_point_csv)
   case('fill_gap')
     !=========!
     run_opt = 9
@@ -6020,7 +6046,8 @@ subroutine quad_mf6_write_heads(lmerge)
   end if
   if (lmerge) then
     call xq%write_mf6_heads(lid0, lid1, kper_beg, kper_end, &
-      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv, f_in_csv_merge)
+      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv, &
+        f_in_csv_merge)
   else
     call xq%write_mf6_heads(lid0, lid1, kper_beg, kper_end, &
       tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv)
@@ -6028,6 +6055,20 @@ subroutine quad_mf6_write_heads(lmerge)
   !
   return
 end subroutine quad_mf6_write_heads
+
+subroutine quad_mf6_write_heads_point()
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+  ! -- local
+! ------------------------------------------------------------------------------
+
+    call xq%write_mf6_heads_point(f_in_point_csv, kper_beg, kper_end, &
+      f_out_point_csv)
+
+  return
+end subroutine quad_mf6_write_heads_point
 
 subroutine quad_mf6_write_chd()
 ! ******************************************************************************
@@ -6390,6 +6431,14 @@ program quad2d
     call quad_mf6_write_wtd()
   end if
   !
+  ! mf6_post_point
+  if (run_opt == 22) then
+    call quad_clean()
+    call quad_read('.intf.lm.bin', read_vintf=.false.)
+    call quad_init_layer_models()
+    call quad_mf6_write_heads_point()
+  end if
+  !  
   ! clean up
   call quad_clean()
   !

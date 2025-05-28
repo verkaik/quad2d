@@ -179,6 +179,7 @@ module utilsmod
     procedure :: set_val_by_key => tCSV_set_val_by_key
     procedure :: get_val        => tCSV_get_val
     procedure :: get_column     => tCSV_get_column
+    procedure :: set_column     => tCSV_set_column
     procedure :: get_matrix     => tCSV_get_matrix
     procedure :: get_selection  => tCSV_get_selection
     procedure :: clean          => tCSV_clean
@@ -3845,7 +3846,7 @@ module utilsmod
     return
   end subroutine tCSV_increase_nr
     
-  subroutine tCSV_set_val_by_key(this, ic, key, i1v, i2v, i4v, i8v, &
+  subroutine tCSV_set_val_by_key(this, ic, ir, key, i1v, i2v, i4v, i8v, &
     r4v, r8v, cv)
 ! ******************************************************************************
 !
@@ -3855,6 +3856,7 @@ module utilsmod
     class(tCSV) :: this
     !
     integer(I4B),     intent(in), optional  :: ic
+    integer(I4B),     intent(in), optional  :: ir
     character(len=*), intent(in), optional  :: key
     integer(I1B),     intent(in), optional :: i1v
     integer(I2B),     intent(in), optional :: i2v
@@ -3866,7 +3868,7 @@ module utilsmod
     !
     ! -- local
     character(len=MXSLEN) :: key_loc
-    integer(I4B) :: jc, n
+    integer(I4B) :: jc, jr, n
  ! ------------------------------------------------------------------------------
     !
     n = 0
@@ -3880,7 +3882,13 @@ module utilsmod
       call errmsg('tCSV_set_val_by_key: too many input defined.')
     end if
     !
-    call this%set_val(ic=jc, ir=this%nr, i1v=i1v, i2v=i2v, i4v=i4v, i8v=i8v, &
+    if (.not.present(ir)) then
+      jr = this%nr
+    else
+      jr = ir
+    end if
+    !
+    call this%set_val(ic=jc, ir=jr, i1v=i1v, i2v=i2v, i4v=i4v, i8v=i8v, &
       r4v=r4v, r8v=r8v, cv=cv, create_s=.true.)
     !
     return
@@ -3948,6 +3956,80 @@ module utilsmod
     !
     return
   end subroutine tCSV_get_column
+  
+  subroutine tCSV_set_column(this, ic, key, i1a, i2a, i4a, i8a, r4a, r8a, ca, &
+    create_s)
+! ******************************************************************************  
+    ! -- arguments
+    class(tCSV) :: this
+    !
+    integer(I4B),  intent(in), optional :: ic
+    character(len=*), intent(in), optional :: key
+    integer(I1B),     dimension(:), intent(in), optional :: i1a
+    integer(I2B),     dimension(:), intent(in), optional :: i2a
+    integer(I4B),     dimension(:), intent(in), optional :: i4a
+    integer(I8B),     dimension(:), intent(in), optional :: i8a
+    real(R4B),        dimension(:), intent(in), optional :: r4a
+    real(R8B),        dimension(:), intent(in), optional :: r8a
+    character(len=*), dimension(:), intent(in), optional :: ca
+    logical,          intent(in), optional :: create_s
+    !
+    ! -- locals
+    type(tVal), pointer :: v => null()
+    character(len=MXSLEN) :: s
+    integer(I4B) :: jc, nr, nc, ir
+! ------------------------------------------------------------------------------
+    !
+    if (present(ic)) then
+      jc = ic
+    else
+      jc = this%get_col(key)
+    end if
+    nr = this%get_nr(); nc = this%get_nc()
+    !
+    ! checks
+    if ((jc < 1).or.(jc > nc)) then
+      call errmsg('tCSV_get_column: invalid column number.')
+    end if
+    !
+    if (present(i1a)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, i1v=i1a(ir))
+      end do
+    end if
+    if (present(i2a)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, i2v=i2a(ir))
+      end do
+    end if
+    if (present(i4a)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, i4v=i4a(ir))
+      end do
+    end if
+    if (present(i8a)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, i8v=i8a(ir))
+      end do
+    end if
+    if (present(r4a)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, r4v=r4a(ir))
+      end do
+    end if
+    if (present(r8a)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, r8v=r8a(ir))
+      end do
+    end if
+    if (present(ca)) then
+      do ir = 1, nr
+        call this%set_val(ic=jc, ir=ir, cv=ca(ir))
+      end do
+    end if
+    !
+    return
+  end subroutine tCSV_set_column
 
   subroutine tCSV_get_matrix(this, i1x, i2x, i4x, i8x, r4x, r8x, cx)
 ! ******************************************************************************  

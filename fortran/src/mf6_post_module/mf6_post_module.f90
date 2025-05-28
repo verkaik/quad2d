@@ -157,10 +157,11 @@ module mf6_post_module
     integer(I4B) :: kstp_in, kper_in, ncol_in, nrow_in, ilay_in
     real(R8B) :: pertim_in, totim_in
     !
-    integer(i8b), parameter :: NBHDR = I4B + I4B + R8B + R8B + 16 + I4B + I4B + I4B
+    integer(I8B), parameter :: NBHDR = I4B + I4B + R8B + R8B + 16 + I4B + I4B + I4B
     integer(I4B) :: iu, ios, i, iper, kper_beg, kper_end, nod
     integer(I8B) :: p, p_nod
-    
+    !
+    real(R8B) :: r8v
 ! ------------------------------------------------------------------------------
     !
     call this%set_kper_map()
@@ -186,7 +187,8 @@ module mf6_post_module
           do i = 1, size(nodes_read)
             nod = nodes_read(i)
             p_nod = p + (nod-1)*R8B
-            read(unit=iu,iostat=ios, pos=p_nod) heads_read(iper,i)
+            read(unit=iu, iostat=ios, pos=p_nod) r8v
+            heads_read(iper,i) = r8v
             if (ios /= 0) then
               call errmsg('mf6_post_read_ulasav_selection: could nod read head.')
             end if

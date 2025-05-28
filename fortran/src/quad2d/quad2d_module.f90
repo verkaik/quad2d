@@ -393,8 +393,9 @@ module quad2dModule
     procedure :: balance_graphs   => tQuads_balance_graphs
     procedure :: open_file        => tQuads_open_file
     procedure :: add_lm_intf      => tQuads_add_lm_intf
-    procedure :: write_mf6_xch_intf   => tQuads_write_mf6_xch_intf
-    procedure :: write_mf6_heads      => tQuads_write_mf6_heads
+    procedure :: write_mf6_xch_intf    => tQuads_write_mf6_xch_intf
+    procedure :: write_mf6_heads       => tQuads_write_mf6_heads
+    procedure :: write_mf6_heads_point => tQuads_write_mf6_heads_point
     procedure :: write_mf6_bnd_heads  => tQuads_write_mf6_bnd_heads
     procedure :: set_mod_dir          => tQuads_set_mod_dir
     procedure :: merge_disu           => tQuads_merge_disu
@@ -6543,6 +6544,288 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuads_write_mf6_heads
   
+  subroutine tQuads_write_mf6_heads_point(this, f_in_point_csv, kper_beg, &
+    kper_end, f_out_point_csv)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tQuads) :: this 
+    character(len=*), intent(in) :: f_in_point_csv
+    integer(I4B), intent(in) :: kper_beg
+    integer(I4B), intent(in) :: kper_end
+    character(len=*), intent(in) :: f_out_point_csv
+    ! -- local
+    type(tPostMod), pointer :: post => null()
+    type(tQuad), pointer :: q => null()
+    type(tBb) :: bbi
+    type(tBBx) :: bbx
+    type(tCSV), pointer :: csv_in => null(), csv_out => null()
+    type(tMF6Disu), pointer :: disu => null()
+    !
+    integer(I4B), dimension(:), allocatable :: layer_arr, lid_arr, nodes_read
+    integer(I4B), dimension(:), allocatable :: xmap, hdr_i_type, kper_arr
+    real(R8B), dimension(:), allocatable :: r8w
+    real(R8B), dimension(:,:), allocatable :: x_arr, heads_read, heads_out
+    real(R8B), dimension(2,1) :: xy
+    character(len=MXSLEN), dimension(:), allocatable :: hdr_keys
+    !
+    character(len=MXSLEN) :: f, s, id
+    logical :: lflag, layer_found, lfound, llayer, lz, lnod
+    integer(I4B) :: nx, mx, lid, lid_read, ix, ic, ir, il, jl, ilay, jlay, nod, n, i
+    integer(I4B) :: kper, nper, il_min, il_max, il_top, il_bot
+    real(R8B) :: z, top, bot
+! ------------------------------------------------------------------------------
+
+    allocate(csv_in)
+    call csv_in%read(f_in_point_csv)
+    nx = csv_in%get_nr()
+    allocate (x_arr(3,nx)); x_arr = R8MV
+    call csv_in%get_column(key='x', r8a=r8w); x_arr(1,:) = r8w 
+    call csv_in%get_column(key='y', r8a=r8w); x_arr(2,:) = r8w
+    allocate(layer_arr(nx)); layer_arr = 0
+    do ix = 1, nx
+      ! check for layer existence
+      llayer = .false.
+      call csv_in%get_val(ir=ix, key='layer', cv=s)
+      if (len_trim(s) > 0) then
+        call csv_in%get_val(ir=ix, key='layer', i4v=ilay)
+        if (ilay /= 0) then
+          layer_arr(ix) = ilay
+          llayer = .true.
+        end if
+      end if
+      !
+      ! check for z-coordinate
+      lz = .false.
+      if (.not. llayer) then
+        call csv_in%get_val(ir=ix, key='z', cv=s)
+        if (len_trim(s) > 0) then
+          call csv_in%get_val(ir=ix, key='z', r8v=z)
+          x_arr(3,ix) = z
+          lz = .true.
+        end if
+      end if
+      !
+      ! check
+      if ((.not.llayer) .and. (.not.lz)) then
+        call errmsg('No depth information specified.')
+      end if
+    end do
+    !
+    ! add columns
+    call csv_in%add_key('lid')
+    call csv_in%add_key('nod')
+    call csv_in%add_key('ilay')
+    do ix = 1, nx
+      call csv_in%set_val_by_key(key='lid', ir=ix, i4v=0)
+      call csv_in%set_val_by_key(key='nod', ir=ix, i4v=0)
+      call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=0)
+    end do
+    !
+    nper = kper_end - kper_beg + 1
+    allocate(kper_arr(nper))
+    nper = 1
+    do kper = kper_beg, kper_end
+      kper_arr(nper) = kper
+      nper = nper + 1
+    end do
+    allocate(heads_out(nx,nper)); heads_out = R8MV
+    !
+    ! loop over the submodels
+    do lid = 1, this%n
+      q => this%get_quad(lid)
+      if (q%get_flag(active=LDUM)) then
+        call q%get_bb(child_bbx=bbx)
+        !
+        ! first check (coarse):
+        lflag = .false.
+        do ix = 1, nx
+          xy(1,1) = x_arr(1,ix); xy(2,1) = x_arr(2,ix)
+          if (point_in_bb(xy, bbx)) then
+            lflag = .true.; exit
+          end if
+        end do
+        !
+        ! second check (detailed):
+        if (lflag) then
+          call q%grid_init()
+          call q%get_bb(child_bbi=bbi)
+          disu => q%disu
+          mx = 0
+          do ix = 1, nx
+            if (point_in_bb(xy, bbx)) then
+              call get_icr(ic, ir, x_arr(1,ix), x_arr(2,ix), bbx%xll, bbx%yur, bbx%cs)
+              if (.not.valid_icr(ic, ir, bbi%ncol, bbi%nrow)) then
+                cycle
+              end if
+              if ( (minval(abs(disu%grid_x_nod(ic,ir,:))) == 0).and. &
+                   (maxval(abs(disu%grid_x_nod(ic,ir,:))) == 0)) then
+                cycle
+              end if
+              !
+              ! find the layer number
+              ilay = layer_arr(ix)
+              layer_found = .false.
+              select case(ilay)
+              case(1:) ! fixed input layer
+                do jl = 1, disu%nlay_act
+                  if (ilay == disu%lay_act(jl)) then
+                    il_min = jl
+                    il_max = jl
+                    layer_found = .true.
+                  end if
+                end do
+                if (.not.layer_found) then
+                  call csv_in%get_val(ir=ix, key='id', cv=id)
+                  call logmsg('Warning: specified layer not found for id '//trim(id)//'!')
+                end if
+              case(-1) ! automatic top layer
+                il_min = 1
+                il_max = disu%nlay_act
+                layer_found = .true.
+              case(0) ! z-coordinate
+                z = x_arr(3,ix)
+                il_top = disu%nlay_act; il_bot = 1
+                lnod = .false.
+                do jl = 1, disu%nlay_act
+                  nod = abs(disu%grid_x_nod(ic,ir,jl))
+                  if (nod > 0) then
+                    lnod = .true.
+                    il_top = min(jl, il_top)
+                    il_bot = max(jl, il_bot)
+                    
+                    top = disu%top(nod); bot = disu%bot(nod)
+                    if (top /= bot) then
+                      if ((top >= z).and.(bot <= z)) then
+                       il = jl
+                       layer_found = .true.
+                      end if
+                    end if
+                  end if
+                  if (layer_found) exit
+                end do
+                !
+                if ((.not.layer_found).and.lnod) then
+                  nod = abs(disu%grid_x_nod(ic,ir,il_top))
+                  if (nod > 0) then
+                     top = disu%top(nod)
+                     if (z >= top) then
+                       il = il_top
+                       layer_found = .true.
+                     end if
+                  end if
+                end if
+                if ((.not.layer_found).and.lnod) then
+                  nod = abs(disu%grid_x_nod(ic,ir,il_bot))
+                  if (nod > 0) then
+                     bot = disu%bot(nod)
+                     if (z <= bot) then
+                       il = il_bot
+                       layer_found = .true.
+                     end if
+                  end if
+                end if
+                if (layer_found) then
+                  il_min = il
+                  il_max = il
+                end if
+              case default
+                call errmsg('tQuads_write_mf6_heads_point')
+              end select
+              !
+              if (layer_found) then
+                do il = il_min, il_max
+                  nod = abs(disu%grid_x_nod(ic,ir,il))
+                  ilay = disu%lay_act(il)
+                  if (nod > 0) then
+                    call csv_in%get_val(ir=ix, key='nod', i4v=n)
+                    if (n == 0) then
+                      mx = mx + 1
+                      call csv_in%set_val_by_key(key='lid', ir=ix, i4v=lid)
+                      call csv_in%set_val_by_key(key='nod', ir=ix, i4v=nod)
+                      call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=ilay)
+                    else
+                      call errmsg('tQuads_write_mf6_heads_point: double nodes!')
+                    end if
+                    exit
+                  end if
+                end do
+              end if
+            end if
+          end do !points
+          !
+          if (mx > 0) then
+            call logmsg('# point(s) found for lid '//ta((/lid/))//': '//ta((/mx/)))
+            
+            nper = kper_end - kper_end + 1
+            if (allocated(xmap)) deallocate(xmap)
+            if (allocated(nodes_read)) deallocate(nodes_read)
+            if (allocated(heads_read)) deallocate(heads_read)
+            allocate(xmap(mx), nodes_read(mx), heads_read(nper, mx)); heads_read = R8MV
+            mx = 0
+            do ix = 1, nx
+              call csv_in%get_val(ir=ix, key='lid', i4v=lid_read)
+              if (lid_read == lid) then
+                mx = mx + 1
+                xmap(mx) = ix
+                call csv_in%get_val(ir=ix, key='nod', i4v=nod)
+                nodes_read(mx) = nod
+              end if
+            end do
+            !
+            call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
+            allocate(post)
+            call post%init(f, kper_beg, kper_end, disu%nodes)
+            call post%read_ulasav_selection(nodes_read, heads_read)
+            !
+            ! set the values
+            do i = 1, mx
+              ix = xmap(i)
+              heads_out(ix,:) = heads_read(:,i)
+            end do
+            call post%clean(); deallocate(post)
+          end if
+          !
+        end if
+      end if
+    end do
+    !
+    ! initialize the output csv, set the data and write
+    allocate(csv_out)
+    allocate(hdr_keys(nx+1), hdr_i_type(nx+1))
+    hdr_keys(1) = 'kper'
+    hdr_i_type(1) = i_i4
+    do ix = 1, nx
+      call csv_in%get_val(ir=ix, key='id', cv=id)
+      call csv_in%get_val(ir=ix, key='ilay', i4v=ilay)
+      hdr_keys(ix+1) = 'heads_layer'//ta([ilay])//'_'//trim(change_case(id,'l'))
+      hdr_i_type(ix+1) = i_r8
+    end do
+    call csv_out%init(file=f_out_point_csv, hdr_keys=hdr_keys, &
+      nr=nper, hdr_i_type=hdr_i_type)
+    call csv_out%set_column(key='kper', i4a=kper_arr)
+    do ix = 1, nx
+      call csv_out%set_column(key=hdr_keys(ix+1), r8a=heads_out(ix,:))
+    end do
+    call csv_out%write()
+    !
+    ! clean up
+    if (allocated(nodes_read)) deallocate(nodes_read)
+    if (allocated(heads_read)) deallocate(heads_read)
+    if (allocated(heads_out)) deallocate(heads_out)
+    if (allocated(r8w)) deallocate(r8w)
+    call csv_in%clean(); call csv_out%clean()
+    deallocate(csv_in);  csv_in  => null()
+    deallocate(csv_out); csv_out => null()
+    if (allocated(hdr_keys)) deallocate(hdr_keys)
+    if (allocated(hdr_i_type)) deallocate(hdr_i_type)
+    if (allocated(kper_arr)) deallocate(kper_arr)
+    !
+    return
+  end subroutine tQuads_write_mf6_heads_point
+    
   subroutine tQuads_write_mf6_bnd_heads(this, kper_beg, kper_end)
 ! ******************************************************************************
 !
@@ -11218,7 +11501,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     select case(dmdat%i_in_file_type)
     case(i_vrt)
       select case(dmdat%i_type)
-      case(i_type_list)      
+      case(i_type_list)
         call dmdat%mf6_get_data_vrt_list(disu, bbx, cs_min_rea, i4a, r8x)
       case(i_type_array)
         call dmdat%mf6_get_data_vrt_array(disu, bbx, cs_min_rea, i4a, r8a)
@@ -11718,15 +12001,22 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (this%i_assign == i_assign_first_layer) then
       !
       ! step 1: read the data for *ALL* the ngrid levels
-      do i = 1, this%ndat
-        dat => this%dat(i); mg => mga_read%mga(i)
-        !
-        if (dat%i_type == i_vrt) then
-          call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
-            i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
-            mfr8=dat%mult_fac)
-        end if
-      end do
+      if (this%ndat /= 1) then
+        call errmsg('Multiple data are nog allowed.')
+      end if
+      
+      dat => this%dat(1); mg => mga_read%mga(1)
+      !
+      if (dat%i_type == i_vrt) then
+        call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
+          i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
+          mfr8=dat%mult_fac)
+      else if (dat%i_type == i_const) then
+        mga_read%lconst = .true.
+        mga_read%r8const = dat%r8const
+      else
+        call errmsg('No data specified.')
+      end if
       !
       allocate(r8a(disu%nodes)); r8a = this%r8const
       !
@@ -11738,8 +12028,12 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
              n = abs(g%xi4(ic,ir))
              if (n /= g%mvi4) then
                if (top_nodes(n) == 1) then
-                 r4v = mga_read%mga(1)%grid(ig)%xr4(ic,ir)
-                 r8a(n) = real(r4v,R8B)
+                 if (.not.mga_read%lconst) then
+                   r4v = mga_read%mga(1)%grid(ig)%xr4(ic,ir)
+                   r8a(n) = real(r4v,R8B)
+                 else
+                   r8a(n) = mga_read%r8const
+                end if
                end if
              end if
            end do; end do
