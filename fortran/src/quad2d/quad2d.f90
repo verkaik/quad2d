@@ -17,7 +17,7 @@ module main_module
     tProps, get_number_of_levels, get_refinement_level, &
     i_lid, i_gid, i_i_graph, i_lay_mod, i_dat_mod, &
     i_tgt_cs_min, i_tgt_cs_min_lay_beg, i_tgt_cs_min_lay_end, i_tgt_cs_min_dz_top, &
-    i_tgt_cs_max, i_head, i_merge, n_prop_field, &
+    i_tgt_cs_max, i_head, i_budget, i_merge, n_prop_field, &
     tMF6Disu, mf6_data_write, tMF6Exchange, valid_icir
   !
   use multigrid_module, only: tMultiGrid, tMultiGridArray
@@ -101,7 +101,7 @@ module main_module
   real(R8B) :: wgt_fac, wgt_per
   real(R8B) :: elsec
   !
-  integer(I4B) :: kper_beg, kper_end, tile_nc, tile_nr
+  integer(I4B) :: kper_beg, kper_end, tile_nc, tile_nr, budget_flf_layer
   !
   save
   
@@ -341,8 +341,10 @@ subroutine quad_settings()
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
     call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
-    call ini%get_val(sect, 'head_field',       cv=fields(i_head))
+    call ini%get_val(sect, 'head_field',       cv=fields(i_head),       cv_def='')
+    call ini%get_val(sect, 'budget_field',     cv=fields(i_budget),     cv_def='')
     !
+    call ini%get_val(sect, 'budget_flf_layer', i4v=budget_flf_layer, i4v_def=0)
     call ini%get_val(sect, 'kper_beg', i4v=kper_beg, i4v_def=1)
     call ini%get_val(sect, 'kper_end', i4v=kper_end, i4v_def=1)
     call ini%get_val(sect, 'tile_nc', i4v=tile_nc, i4v_def=huge(I4ZERO))
@@ -6020,7 +6022,7 @@ subroutine quad_partition()
   return
 end subroutine quad_partition
 
-subroutine quad_mf6_write_heads(lmerge)
+subroutine quad_mf6_write_grid(lmerge)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -6042,21 +6044,21 @@ subroutine quad_mf6_write_heads(lmerge)
     lid1 = xq%n
   end if
   if (lid0 > lid1) then
-    call errmsg('quad_mf6_write_heads: lid_min > lid_max.')
+    call errmsg('quad_mf6_write_grid: lid_min > lid_max.')
   end if
   if (lmerge) then
-    call xq%write_mf6_heads(lid0, lid1, kper_beg, kper_end, &
+    call xq%write_mf6_grid(lid0, lid1, kper_beg, kper_end, budget_flf_layer, &
       tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv, &
         f_in_csv_merge)
   else
-    call xq%write_mf6_heads(lid0, lid1, kper_beg, kper_end, &
+    call xq%write_mf6_grid(lid0, lid1, kper_beg, kper_end, budget_flf_layer, &
       tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv)
   end if
   !
   return
-end subroutine quad_mf6_write_heads
+end subroutine quad_mf6_write_grid
 
-subroutine quad_mf6_write_heads_point()
+subroutine quad_mf6_write_point()
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -6064,11 +6066,11 @@ subroutine quad_mf6_write_heads_point()
   ! -- local
 ! ------------------------------------------------------------------------------
 
-    call xq%write_mf6_heads_point(f_in_point_csv, kper_beg, kper_end, &
+    call xq%write_mf6_point(f_in_point_csv, kper_beg, kper_end, &
       f_out_point_csv)
 
   return
-end subroutine quad_mf6_write_heads_point
+end subroutine quad_mf6_write_point
 
 subroutine quad_mf6_write_chd()
 ! ******************************************************************************
@@ -6419,9 +6421,9 @@ program quad2d
       call quad_mf6_write_chd()
     else
       if (len_trim(f_in_csv_merge) > 0) then
-        call quad_mf6_write_heads(lmerge=.true.)
+        call quad_mf6_write_grid(lmerge=.true.)
       else
-        call quad_mf6_write_heads(lmerge=.false.)
+        call quad_mf6_write_grid(lmerge=.false.)
       end if
     end if
   end if
@@ -6436,7 +6438,7 @@ program quad2d
     call quad_clean()
     call quad_read('.intf.lm.bin', read_vintf=.false.)
     call quad_init_layer_models()
-    call quad_mf6_write_heads_point()
+    call quad_mf6_write_point()
   end if
   !  
   ! clean up

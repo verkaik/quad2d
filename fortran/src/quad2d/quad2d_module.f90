@@ -335,7 +335,8 @@ module quad2dModule
   integer(I4B), parameter, public :: i_tgt_cs_min_dz_top  = 9
   integer(I4B), parameter, public :: i_tgt_cs_max         = 10
   integer(I4B), parameter, public :: i_head               = 11
-  integer(I4B), parameter, public :: i_merge              = 12
+  integer(I4B), parameter, public :: i_budget             = 12
+  integer(I4B), parameter, public :: i_merge              = 13
   integer(I4B), parameter, public :: n_prop_field         = i_merge
   !
   type, public :: tProps
@@ -393,9 +394,9 @@ module quad2dModule
     procedure :: balance_graphs   => tQuads_balance_graphs
     procedure :: open_file        => tQuads_open_file
     procedure :: add_lm_intf      => tQuads_add_lm_intf
-    procedure :: write_mf6_xch_intf    => tQuads_write_mf6_xch_intf
-    procedure :: write_mf6_heads       => tQuads_write_mf6_heads
-    procedure :: write_mf6_heads_point => tQuads_write_mf6_heads_point
+    procedure :: write_mf6_xch_intf   => tQuads_write_mf6_xch_intf
+    procedure :: write_mf6_grid       => tQuads_write_mf6_grid
+    procedure :: write_mf6_point      => tQuads_write_mf6_point
     procedure :: write_mf6_bnd_heads  => tQuads_write_mf6_bnd_heads
     procedure :: set_mod_dir          => tQuads_set_mod_dir
     procedure :: merge_disu           => tQuads_merge_disu
@@ -1581,7 +1582,7 @@ module quad2dModule
     return
   end subroutine tMF6Disu_write
    
-  subroutine tMF6Disu_read(this, id_pref)
+  subroutine tMF6Disu_read(this, id_pref, lread_iajaihc)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1589,6 +1590,7 @@ module quad2dModule
     ! -- dummy
     class(tMF6Disu) :: this
     character(len=*), intent(in), optional :: id_pref
+    logical, optional, intent(in) :: lread_iajaihc
     ! -- local
     type(tMf6Wbd), pointer :: wbd => null()
     character(len=MXSLEN) :: id_pref_loc
@@ -1599,7 +1601,15 @@ module quad2dModule
     integer(I2B), dimension(:), pointer :: i2a
     integer(I4B), dimension(:), pointer :: i4a
     real(R8B),    dimension(:), pointer :: r8a
+    !
+    logical :: lread
 ! ------------------------------------------------------------------------------
+    !
+    if (present(lread_iajaihc)) then
+      lread = lread_iajaihc
+    else
+      lread = .false.
+    end if
     !
     if (present(id_pref)) then
       id_pref_loc = id_pref
@@ -1609,8 +1619,14 @@ module quad2dModule
     !
     wbd => this%wbd
     !
-    allocate(id(5))
-    id = ['top','bot','map_igrid','map_ilay','map_nod']
+    if (lread) then
+      allocate(id(7))
+      id = ['top','bot','map_igrid','map_ilay','map_nod','ia','ja','ihc']
+    else
+      allocate(id(5))
+      id = ['top','bot','map_igrid','map_ilay','map_nod']
+    end if
+    !
     do i = 1, size(id)
       select case(id(i))
       case('top')
@@ -1628,6 +1644,15 @@ module quad2dModule
       case('map_nod')
         call wbd%read_array(trim(id(i))//trim(id_pref_loc), i4a=i4a)
         allocate(this%map_nod, source=i4a)
+      case('ia')
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), i4a=i4a)
+        allocate(this%ia, source=i4a)
+      case('ja')
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), i4a=i4a)
+        allocate(this%ja, source=i4a)
+      case('ihc')
+        call wbd%read_array(trim(id(i))//trim(id_pref_loc), i4a=i4a)
+        allocate(this%ihc, source=i4a)
       end select
     end do
     !
@@ -5869,8 +5894,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuads_write_mf6_xch_intf
   !
-  subroutine tQuads_write_mf6_heads(this, lid0, lid1, &
-    kper_beg, kper_end, tile_nc, tile_nr, f_vrt_pref, write_nod_map, &
+  subroutine tQuads_write_mf6_grid(this, lid0, lid1, &
+    kper_beg, kper_end, budget_flf_layer, tile_nc, tile_nr, &
+    f_vrt_pref, write_nod_map, &
     vtk_lid, f_lay_mod_output_csv, f_in_csv_merge)
 ! ******************************************************************************
 !
@@ -5882,6 +5908,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B), intent(in) :: lid1
     integer(I4B), intent(in) :: kper_beg
     integer(I4B), intent(in) :: kper_end
+    integer(I4B), intent(in) :: budget_flf_layer
     integer(I4B), intent(in) :: tile_nc
     integer(I4B), intent(in) :: tile_nr
     character(len=*), intent(in) :: f_vrt_pref
@@ -5926,6 +5953,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     real(R8B), dimension(:,:), allocatable :: vtk_xc, vtk_x
     real(R8B), dimension(:), allocatable :: vtk_cs, vtk_dz
     real(R4B), dimension(:,:), allocatable :: xr4_q, xr4_t, vtk_var
+    real(R8B), dimension(:), allocatable :: node_area
     real(R4B) :: r4v
     real(R8B) :: xll, yur, cs, cs_min, cs_min_rea, cxll, cxur, cyll, cyur
     real(R8B) :: xc, yc, zc, top, bot, dz, hcs, hdz
@@ -5938,9 +5966,21 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I4B) :: nod, nod_min, nod_max, nod_off, n, nc, nr, nl, bs, nvtkx
     integer(I4B) :: im, nim, nlid, nodes_merge, lid2, nodes_offset
     integer(I4B) :: nlid_vtk, iact
+    integer(I4B) :: i_field, flf_layer
     !
-    logical :: read_data, merge, found
+    logical :: read_data, merge, found, write_vtk, write_budget, clean_disu
 ! ------------------------------------------------------------------------------
+    !
+    if (budget_flf_layer > 0) then
+      write_budget = .true.
+      write_vtk = .false.
+      i_field = i_budget
+    else
+      write_budget = .false.
+      write_vtk = (len_trim(vtk_lid) > 0)
+      clean_disu = .true.
+      i_field = i_head
+    end if
     !
     if (present(f_in_csv_merge)) then
       merge = .true.
@@ -5978,11 +6018,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         if (merge) then
           im = lid2im_arr(lid)
           if (im == 0) then
-            call errmsg('tQuads_write_mf6_heads: program error 1, im=0.')
+            call errmsg('tQuads_write_mf6_grid: program error 1, im=0.')
           end if
-          call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
+          call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_field)), cv=f)
         else
-          call q%get_prop_csv(ikey=i_head, cv=f)
+          call q%get_prop_csv(ikey=i_field, cv=f)
         end if
         call swap_slash(f)
         if (.not.fileexist(f)) then
@@ -6083,7 +6123,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end if
     !
     ! VTK
-    if (len_trim(vtk_lid) > 0) then
+    if (write_vtk) then
       s = change_case(vtk_lid,'l')
       if (s == 'all') then
         if(allocated(lid_arr_vtk)) deallocate(lid_arr_vtk)
@@ -6181,7 +6221,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                 if (n /= nod_g%mvi4) then
                   i = i4wk(n)
                   if ((i == 0).or.(i > nodes)) then
-                    call errmsg('tQuads_write_mf6_heads: program error.')
+                    call errmsg('tQuads_write_mf6_grid: program error.')
                   end if
                   call get_xy(xc, yc, ic, ir, bbx%xll, bbx%yur, bbx%cs)
                   top = real(top_g%xr4(ic,ir),R8B); bot = real(bot_g%xr4(ic,ir),R8B)
@@ -6197,10 +6237,10 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             end do
             !
             if (minval(vtk_cs) == R8ZERO) then
-              call errmsg('tQuads_write_mf6_heads: program error.')
+              call errmsg('tQuads_write_mf6_grid: program error.')
             end if
             if (minval(vtk_dz) <= R8ZERO) then
-              call errmsg('tQuads_write_mf6_heads: program error.')
+              call errmsg('tQuads_write_mf6_grid: program error.')
             end if
             !
             if (allocated(vtk_x)) deallocate(vtk_x)
@@ -6234,7 +6274,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               im = lid2im_arr(lid)
               call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
               call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
-              call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
+              call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_field)), cv=f)
               call csv%get_val(ir=im, ic=csv%get_col('nodes'), i4v=nodes_merge)
               found = .false.
               do i = 1, nlid
@@ -6248,11 +6288,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                 nodes_offset = nodes_offset + n
               end do
               if (.not.found) then
-                call errmsg('tQuads_write_mf6_heads: program error.')
+                call errmsg('tQuads_write_mf6_grid: program error.')
               end if
             else
               q => this%get_quad(lid)
-              call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
+              call q%get_prop_csv(ikey=i_field, cv=f); call swap_slash(f)
               nodes_merge = q%disu%nodes
               call logmsg('VTK yet only supported with grid merging.')
             end if
@@ -6268,7 +6308,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                 if (n > 0) then
                   i = i4wk(n)
                   if (i == 0) then
-                    call errmsg('tQuads_write_mf6_heads: program error.')
+                    call errmsg('tQuads_write_mf6_grid: program error.')
                   end if
                   vtk_var(1,i) = xr4_q(ic,ir)
                 end if
@@ -6276,7 +6316,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               ! check
               do i = 1, nodes
                 if (vtk_var(1,i) == mvr4) then
-                  call errmsg('tQuads_write_mf6_heads: program error.')
+                  call errmsg('tQuads_write_mf6_grid: program error.')
                 end if
               end do
               deallocate(nodmap_q, xr4_q)
@@ -6327,45 +6367,68 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
               ir = csv_out%get_row(key_val=clm, hdr_key='id')
               call csv_out%get_val(ir=ir, ic=csv_out%get_col('output_layer'), i4v=il)
               !
-              if (merge) then
-                im = lid2im_arr(lid)
-                call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
-                call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
-                nodes_offset = 0
-                do i = 1, nlid
-                   lid2 = lid_arr(i)
-                   if (lid == lid2) exit
-                   q2 => this%get_quad(lid2)
-                   call q2%get_prop_csv(key='nodes', i4v=nodes)
-                   nodes_offset = nodes_offset + nodes
-                end do
-                call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f)
-                call q%get_nod_map(il, nodmap_q, nodes, f, nodes_offset)
+              if (write_budget) then
+                if (merge) then
+                  call errmsg('tQuads_write_mf6_grid: merge for budgets not yet supported.')
+                else
+                  flf_layer = budget_flf_layer
+                  call q%get_nod_map(flf_layer, nodmap_q, nodes, clean_disu=.false., read_iajaihc=.true.)
+                end if
               else
-                call q%get_nod_map(il, nodmap_q, nodes)
+                if (merge) then
+                  im = lid2im_arr(lid)
+                  call csv%get_val(ir=im, ic=csv%get_col('lid_merged'), cv=s_long)
+                  call parse_line(s=s_long, i4a=lid_arr, token_in=';'); nlid = size(lid_arr)
+                  nodes_offset = 0
+                  do i = 1, nlid
+                     lid2 = lid_arr(i)
+                     if (lid == lid2) exit
+                     q2 => this%get_quad(lid2)
+                     call q2%get_prop_csv(key='nodes', i4v=nodes)
+                     nodes_offset = nodes_offset + nodes
+                  end do
+                  call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f)
+                  call q%get_nod_map(il, nodmap_q, nodes, f, nodes_offset)
+                else
+                  call q%get_nod_map(il, nodmap_q, nodes)
+                end if
               end if
               !
               ! check dimensions
               nc = (bbx%xur-bbx%xll)/cs_min_rea; nr = (bbx%yur-bbx%yll)/cs_min_rea
               if ((size(nodmap_q,1) /= nc).or.(size(nodmap_q,2) /= nr)) then
-                call errmsg('tQuads_write_mf6_heads: program error 2.')
+                call errmsg('tQuads_write_mf6_grid: program error 2.')
               end if
               !
               if (allocated(nodmap_q)) then
                 allocate(post)
                 call logmsg('Reading heads for lid '//trim(ta([lid]))//'...')
-                if (merge) then
-                  im = lid2im_arr(lid) 
-                  call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_head)), cv=f)
-                  call csv%get_val(ir=im, ic=csv%get_col('nodes'), i4v=nodes_merge)
-                  call post%init(f, kper, kper, nodes_merge)
-                  call post%read_ulasav()
-                  call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                if (write_budget) then
+                  if (merge) then
+                    call errmsg('tQuads_write_mf6_grid: merge for budgets not yet supported.')
+                  else
+                    call q%get_prop_csv(ikey=i_field, cv=f); call swap_slash(f)
+                    call post%init(f, kper, kper, nodes)
+                    call post%read_budget(flf_layer, q%disu%map_ilay, q%disu%ia, q%disu%ja, q%disu%ihc)
+                    nod_mg => q%disu%grid_mga_nod%get_mg(flf_layer)
+                    call nod_mg%get_node_area(node_area, nodes)
+                    call post%get_grid(kper, nodmap_q, mvr4, xr4_q, node_area=node_area)
+                    if (allocated(node_area)) deallocate(node_area)
+                  end if
                 else
-                  call q%get_prop_csv(ikey=i_head, cv=f); call swap_slash(f)
-                  call post%init(f, kper, kper, nodes)
-                  call post%read_ulasav()
-                  call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                  if (merge) then
+                    im = lid2im_arr(lid) 
+                    call csv%get_val(ir=im, ic=csv%get_col(this%props%fields(i_field)), cv=f)
+                    call csv%get_val(ir=im, ic=csv%get_col('nodes'), i4v=nodes_merge)
+                    call post%init(f, kper, kper, nodes_merge)
+                    call post%read_ulasav()
+                    call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                  else
+                    call q%get_prop_csv(ikey=i_field, cv=f); call swap_slash(f)
+                    call post%init(f, kper, kper, nodes)
+                    call post%read_ulasav()
+                    call post%get_grid(kper, nodmap_q, mvr4, xr4_q)
+                  end if
                 end if
                 !
                 if (.false.) then
@@ -6398,7 +6461,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                         (valid_icir(ic1, ir1, bbip%ncol, bbip%nrow))) then
                       ! check
                       if (((ic1-ic0+1)/=bs).or.((ir1-ir0+1)/=bs)) then
-                        call errmsg('tQuads_write_mf6_heads: program error 3.')
+                        call errmsg('tQuads_write_mf6_grid: program error 3.')
                       end if
                       !
                       r4v = xr4_q(ic,ir)
@@ -6464,7 +6527,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                           if (n /= 0) then
                             nod = i4wk(n - nod_min + 1)
                             if (nod == 0) then
-                              call errmsg('tQuads_write_mf6_heads: program error 4.')
+                              call errmsg('tQuads_write_mf6_grid: program error 4.')
                             end if
                             do jr = ir0, ir1; do jc = ic0, ic1
                               nodmap_t(jc,jr) = nod
@@ -6542,9 +6605,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     call csv_out%clean()
     !
     return
-  end subroutine tQuads_write_mf6_heads
+  end subroutine tQuads_write_mf6_grid
   
-  subroutine tQuads_write_mf6_heads_point(this, f_in_point_csv, kper_beg, &
+  subroutine tQuads_write_mf6_point(this, f_in_point_csv, kper_beg, &
     kper_end, f_out_point_csv)
 ! ******************************************************************************
 !
@@ -6732,7 +6795,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                   il_max = il
                 end if
               case default
-                call errmsg('tQuads_write_mf6_heads_point')
+                call errmsg('tQuads_write_mf6_grid_point')
               end select
               !
               if (layer_found) then
@@ -6747,7 +6810,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                       call csv_in%set_val_by_key(key='nod', ir=ix, i4v=nod)
                       call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=ilay)
                     else
-                      call errmsg('tQuads_write_mf6_heads_point: double nodes!')
+                      call errmsg('tQuads_write_mf6_grid_point: double nodes!')
                     end if
                     exit
                   end if
@@ -6824,7 +6887,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (allocated(kper_arr)) deallocate(kper_arr)
     !
     return
-  end subroutine tQuads_write_mf6_heads_point
+  end subroutine tQuads_write_mf6_point
     
   subroutine tQuads_write_mf6_bnd_heads(this, kper_beg, kper_end)
 ! ******************************************************************************
@@ -9273,28 +9336,44 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end function tQuad_check_gid_mask
 !  
-  subroutine tQuad_get_nod_map(this, il, nod_map, nodes, f_csv_dat, nodes_offset)
+  subroutine tQuad_get_nod_map(this, il, nod_map, nodes, f_csv_dat, nodes_offset, &
+    clean_disu, read_iajaihc)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tQuad) :: this
-    integer(I4B), intent(in) :: il
+    integer(I4B), intent(inout) :: il
     integer(I4B), dimension(:,:), allocatable, intent(inout) :: nod_map
     integer(I4B), intent(out) :: nodes
     character(len=*), intent(in), optional :: f_csv_dat
     integer(I4B), optional :: nodes_offset
+    logical, optional, intent(in) :: clean_disu
+    logical, optional, intent(in) :: read_iajaihc
     ! -- local
     type(tMF6Disu), pointer :: disu => null()
     type(tBB) :: bbi
-    integer(I4B) :: jl, ir, ic, n
+    integer(I4B) :: jl, ir, ic, n, nc, nr
+    logical :: lclean, liajaihc
 ! ------------------------------------------------------------------------------
+    if (present(clean_disu)) then
+      lclean = clean_disu
+    else
+      lclean = .true.
+    end if
+    !
+    if (present(read_iajaihc)) then
+      liajaihc = read_iajaihc
+    else 
+      liajaihc = .false.
+    end if
+    
     ! read the grid data
     if (present(f_csv_dat)) then
-      call this%grid_init(f_csv_dat, '_'//trim(ta([this%lid])))
+      call this%grid_init(f_csv_dat, id_pref='_'//trim(ta([this%lid])), read_iajaihc=liajaihc)
     else
-      call this%grid_init()
+      call this%grid_init(read_iajaihc=liajaihc)
     end if
     !
     disu => this%disu
@@ -9308,10 +9387,19 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     else
       do jl = 1, disu%nlay_act
         if (il == disu%lay_act(jl)) then
+          il = jl
           allocate(nod_map, source=disu%grid_x_nod(:,:,jl))
           exit
         end if
       end do
+    end if
+    !
+    if (.not.allocated(nod_map)) then
+      il = -1
+      nc = size(disu%grid_x_nod,1)
+      nr = size(disu%grid_x_nod,2)
+      allocate(nod_map(nc,nr))
+      nod_map = 0
     end if
     !
     if (present(nodes_offset)) then
@@ -9326,7 +9414,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end if
     !
     !clean-up grid data
-    call disu%clean(); deallocate(this%disu); this%disu => null()
+    if (lclean) then
+      call disu%clean(); deallocate(this%disu); this%disu => null()
+    end if
     !
     return
   end subroutine tQuad_get_nod_map
@@ -10246,7 +10336,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       if (allocated(g0%icir_int_mv)) g0%n_int_mv = size(g0%icir_int_mv,2)
       n_tot = n_int + g0%n_int_mv
       if (n_tot == 0) then
-        call errmsg('tQuad_set_cgrid: program error, no boundaries found.')
+        call logmsg('tQuad_set_cgrid: WARNING, no boundaries found.')
       else
         if (allocated(icir0)) deallocate(icir0)
         allocate(icir0(2,n_tot))
@@ -11382,7 +11472,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tQuad_grid_gen
   
-  subroutine tQuad_grid_init(this, f_csv_dat, id_pref, nr_max)
+  subroutine tQuad_grid_init(this, f_csv_dat, id_pref, nr_max, read_iajaihc)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -11392,6 +11482,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     character(len=*), intent(in), optional :: f_csv_dat
     character(len=*), intent(in), optional :: id_pref
     integer(I4B), intent(in), optional :: nr_max
+    logical, optional, intent(in) :: read_iajaihc
     ! -- local
     character(len=MXSLEN), parameter :: debug_d = &
       'f:\models\lhm\LHM-Flex\pre-processing\debug_read\'
@@ -11406,7 +11497,14 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     character(len=MXSLEN), dimension(:), allocatable :: sa
     integer(I4B) :: i, lm, ic
     real(R8B) :: cs_min, cs_min_tgt
+    logical :: liajaihc
 ! ------------------------------------------------------------------------------
+    !
+    if (present(read_iajaihc)) then
+      liajaihc = read_iajaihc
+    else
+      liajaihc = .false.
+    end if
     !
     if (present(id_pref)) then
       id_pref_loc = id_pref
@@ -11437,7 +11535,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     wbd%f_binpos = f_binpos
     !
     ! read the grid data
-    call disu%read(id_pref_loc)
+    call disu%read(id_pref_loc, liajaihc)
     !
     ! Set the metadata
     call this%get_prop_csv(key='nodes', i4v=disu%nodes)

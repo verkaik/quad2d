@@ -19,6 +19,7 @@ module multigrid_module
     procedure :: clean          => tMultiGrid_clean
     procedure :: write_vrt      => tMultiGrid_write_vrt
     procedure :: set_grid_count => tMultiGrid_set_grid_count
+    procedure :: get_node_area  => tMultiGrid_get_node_area
   end type tMultiGrid
   !
   type, public :: tMultiGridArray
@@ -265,6 +266,43 @@ module multigrid_module
     return
   end subroutine tMultiGrid_set_grid_count
    
+  subroutine tMultiGrid_get_node_area(this, node_area, nodes)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tMultiGrid) :: this
+    real(R8B), dimension(:), allocatable, intent(inout) :: node_area
+    integer(I4B), intent(in) :: nodes
+    !
+    ! -- local
+    type(tGrid), pointer :: g  => null()
+    integer(I4B) :: ig, nc, nr, ic, ir, n
+    real(R8B) :: cs
+! ------------------------------------------------------------------------------
+    !
+    if (allocated(node_area)) deallocate(node_area)
+    allocate(node_area(nodes))
+    node_area = R8ZERO
+    !
+    do ig = 1, this%ngrid
+      g => this%grid(ig)
+      cs = g%bbx%cs
+      do ir = 1, g%nr; do ic = 1, g%nc
+        n = abs(g%xi4(ic,ir))
+        if (n > 0) then
+          if (n > nodes) then
+            call errmsg('tMultiGrid_get_node_area: invalid node number.')
+          end if
+          node_area(n) = cs*cs
+        end if
+      end do; end do
+    end do
+    !
+    return
+  end subroutine tMultiGrid_get_node_area
+  
 ! ==============================================================================
 ! ==============================================================================
 ! tMultiGridArray
