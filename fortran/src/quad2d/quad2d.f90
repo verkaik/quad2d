@@ -5385,7 +5385,7 @@ subroutine quad_grid_gen()
   logical :: lactive, lskip, lwrite, lok
   integer(I4B), dimension(:), allocatable :: lay, lid_map, lid_arr
   integer(I4B) :: ncell_tot, ncell, nja, nlay_act, ngrid, write_csv_delta
-  integer(I4B) :: lid0, lid1, n_act, i, n
+  integer(I4B) :: lid0, lid1, n_act, i, n, regrid_flag
   real(R8B) :: cs_min_rea, cs_max_rea
 ! ------------------------------------------------------------------------------
   ncell_tot = 0; n = 0
@@ -5401,6 +5401,7 @@ subroutine quad_grid_gen()
     call csv%add_key('nlay_act')
     call csv%add_key('ngrid_lev')
     call csv%add_key('lay_act')
+    call csv%add_key('regrid')
     call csv%add_key('cs_min_rea')
     call csv%add_key('cs_max_rea')
     if (lwrite_disu) call csv%add_key('csv_dat')
@@ -5482,15 +5483,22 @@ subroutine quad_grid_gen()
         end if
         !
         ! call the main grid generation subroutine
+        lok = .true.; regrid_flag = 0
         call q%grid_gen(nlay_act, lay, lskip, disu, lok)
         if (.not.lok) then
-          call logmsg('********** SKIPPING QUAD *********')
-          call q%set_flag(active=.false.)
-          if (lwrite) then
-            call q%set_prop_csv(key='cs_min_rea', r8v=disu%cs_min_rea)
-            call q%set_prop_csv(key='cs_max_rea', r8v=disu%cs_max_rea)
+          regrid_flag = 1
+          call logmsg('---> RE-GRIDDING')
+          call q%grid_gen(nlay_act, lay, lskip, disu, lok)
+          if (.not.lok) then
+            call errmsg('RE-GRIDDING FAILED')
+            !call logmsg('********** SKIPPING QUAD *********')
+            !call q%set_flag(active=.false.)
+            !if (lwrite) then
+            !  call q%set_prop_csv(key='cs_min_rea', r8v=disu%cs_min_rea)
+            !  call q%set_prop_csv(key='cs_max_rea', r8v=disu%cs_max_rea)
+            !end if
+            !cycle
           end if
-          cycle
         end if
         !
         if (lwrite_disu) then
@@ -5518,6 +5526,7 @@ subroutine quad_grid_gen()
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('ngrid_lev'), i4v=ngrid)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('csv_dat'), cv=f_csv_dat)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('lay_act'), cv=s_lay_act)
+          call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('regrid'), i4v=regrid_flag)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('cs_min_rea'), r8v=cs_min_rea)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('cs_max_rea'), r8v=cs_max_rea)
         else
@@ -5538,6 +5547,7 @@ subroutine quad_grid_gen()
         call q%set_prop_csv(key='nlay_act', i4v=nlay_act)
         call q%set_prop_csv(key='ngrid_lev', i4v=ngrid)
         call q%set_prop_csv(key='lay_act', cv=trim(s_lay_act))
+        call q%set_prop_csv(key='regrid', i4v=regrid_flag)
         call q%set_prop_csv(key='cs_min_rea', r8v=cs_min_rea)
         call q%set_prop_csv(key='cs_max_rea', r8v=cs_max_rea)
         if (lwrite_disu) then

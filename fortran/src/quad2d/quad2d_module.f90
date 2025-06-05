@@ -10860,13 +10860,23 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     !
     props => this%props
     call this%get_prop_csv(ikey=i_lay_mod,           cv=clm)
-    call this%get_prop_csv(ikey=i_tgt_cs_min,        r8v=cs_min_tgt)
     call this%get_prop_csv(ikey=i_tgt_cs_min_dz_top, r4v=thk_cs_min, empty=use_lay_intv)
     if (use_lay_intv) then ! layer interval
       call this%get_prop_csv(ikey=i_tgt_cs_min_lay_beg, i4v=il0)
       call this%get_prop_csv(ikey=i_tgt_cs_min_lay_end, i4v=il1)
     end if
-    call this%get_prop_csv(ikey=i_tgt_cs_max,         r8v=cs_max_tgt)
+
+    call this%get_prop_csv(ikey=i_tgt_cs_min, r8v=cs_min_tgt)
+    call this%get_prop_csv(ikey=i_tgt_cs_max, r8v=cs_max_tgt)
+    !
+    ! second try
+    if (lggok == .false.) then
+      cs_min_tgt = min(cs_min_tgt, disu%cs_max_rea)
+      cs_max_tgt = min(cs_max_tgt, disu%cs_max_rea)
+      !
+      call this%set_prop_csv(ikey=i_tgt_cs_min, r8v=cs_min_tgt)
+      call this%set_prop_csv(ikey=i_tgt_cs_max, r8v=cs_max_tgt)
+    end if
     !
     ! debug
     !il0 = 1
@@ -11436,7 +11446,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     call disu%set_cs_rea_ngrid(x, bbx_read%cs)
     if ((disu%cs_max_rea < cs_min_tgt).or.(disu%cs_max_rea < cs_max_tgt)) then
       lggok = .false.
-      call logmsg('Change maximum allowed grid size to '//ta([disu%cs_max_rea]))
+      call logmsg('Regridding required, since maximum allowed grid size is: ' &
+        //ta([disu%cs_max_rea]))
     else
       lggok = .true.
       call disu%x_to_mga(x, ngrid, bbx_read)
