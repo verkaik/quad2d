@@ -48,7 +48,7 @@ module main_module
   type(tBbX) :: bbx
   type(tBbX) :: bbx_t
   !
-  character(len=MXSLEN), dimension(:), allocatable :: args, csv_val
+  character(len=MXSLEN), dimension(:), allocatable :: args, csv_val, id_args
   character(len=MXSLEN) :: f_vrt, f_tile, d_out, f_in_csv, f_in_csv_merge, f_out_csv, f_part_csv
   character(len=MXSLEN) :: f_in_csv_pref, f_in_csv_post, f_lay_mod_output_csv
   character(len=MXSLEN) :: f_mod_def_inp, f_lay_coupling_csv, f_lay_mod_csv, f_dat_mod_csv, fp
@@ -116,19 +116,31 @@ subroutine quad_settings()
   ! -- local
   type(tIni) :: ini
   character(len=MXSLEN) :: sect, cdate, cversion, s
+  integer(I4B) :: na, n, i, j
 ! ------------------------------------------------------------------------------
   args = get_args()
+  na = size(args)
   !
-  if (size(args) < 2) then
+  if (na < 2) then
     call errmsg('Invalid number of program arguments.')
   end if
   lid_min = 0
   lid_max = 0 
-  if (size(args) > 2) then
+  if (na > 2) then
     read(args(3),*) lid_min
   end if
-  if (size(args) > 3) then
+  if (na > 3) then
     read(args(4),*) lid_max
+  end if
+  if (na > 4) then
+   n = na - 4
+   if (allocated(id_args)) deallocate(id_args)
+   allocate(id_args(n))
+   j = 1
+   do i = 5, na
+     id_args(j) = change_case(args(i), 'l')
+     j = j + 1
+    end do
   end if
   !
   call logmsg('====================================================================')
@@ -5045,9 +5057,9 @@ subroutine quad_mf6_data_write()
   ! -- local
   type(tDataModelData), pointer :: dmdat => null()
   !
-  character(len=MXSLEN) :: d, f_log
-  logical :: writelog
-  integer(I4B) :: lid0, lid1, n_act, iu, idat
+  character(len=MXSLEN) :: d, f_log, id
+  logical :: writelog, filter_id, skip_id
+  integer(I4B) :: lid0, lid1, n_act, iu, idat, nid_args
   !
   integer(I4B), dimension(:), allocatable :: i4a
   real(R8B), dimension(:), allocatable :: r8a
@@ -5083,6 +5095,14 @@ subroutine quad_mf6_data_write()
     writelog = .false.
   end if
   !
+  if (allocated(id_args)) then
+    filter_id = .true.
+    nid_args = size(id_args)
+  else
+    filter_id = .false.
+    nid_args = 0
+  end if
+  !
   n = 0
   do lid = lid0, lid1
     q => xq%get_quad(lid)
@@ -5095,9 +5115,25 @@ subroutine quad_mf6_data_write()
       !
       call q%grid_init()
       do idat = 1, q%dat_mod%get_ndat()
-        call q%dat_mod%get_dat(idat, dmdat)
-        call q%mf6_get_data(dmdat, i4a, r8a, r8x)
-        call mf6_data_write(q%disu%wbd, dmdat%id, dmdat%i_out_file_type, i4a, r8a, r8x)
+        if (filter_id) then
+          id = q%dat_mod%get_id(idat)
+          skip_id = .true.
+          do i = 1, nid_args
+            if (id == id_args(i)) then
+              skip_id = .false.
+              exit
+            end if
+          end do
+        else
+          skip_id = .false.
+        end if
+        if (.not.skip_id) then
+          call q%dat_mod%get_dat(idat, dmdat)
+          call q%mf6_get_data(dmdat, i4a, r8a, r8x)
+          call mf6_data_write(q%disu%wbd, dmdat%id, dmdat%i_out_file_type, i4a, r8a, r8x)
+        else
+          call logmsg('***** Skipping for id: '//trim(id)//' *****')
+        end if
       end do
       call q%disu%wbd%write_csv()
       !
@@ -5215,7 +5251,7 @@ subroutine quad_mf6_data_write_merge()
     end do
     !
     ! set the wbd
-    f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+    f_binpos = trim(strip_ext(f_csv_dat))//'_data_write.binpos'
     allocate(wbd)
     call wbd%read_csv(f_csv_dat, nr_max=MAX_NR_CSV)
     wbd%f_binpos = f_binpos
@@ -5386,7 +5422,7 @@ subroutine quad_grid_gen()
   integer(I4B), dimension(:), allocatable :: lay, lid_map, lid_arr
   integer(I4B) :: ncell_tot, ncell, nja, nlay_act, ngrid, write_csv_delta
   integer(I4B) :: lid0, lid1, n_act, i, n, regrid_flag
-  real(R8B) :: cs_min_rea, cs_max_rea
+  real(R8B) :: cs_min_rea, cs_max_rea, cs_min_tgt, cs_max_tgt
 ! ------------------------------------------------------------------------------
   ncell_tot = 0; n = 0
   write_csv_delta = max(1,int(real(xq%n_act,R4B)/perc_intv,I4B))
@@ -5406,6 +5442,14 @@ subroutine quad_grid_gen()
     call csv%add_key('cs_max_rea')
     if (lwrite_disu) call csv%add_key('csv_dat')
   end if
+  !
+  if ((lid_min == 0).and.(lid_max == 0)) then
+    if (loverwrite_props) then
+      call logmsg('***** Ignoring option: overwrite_props *****')
+      loverwrite_props = .false.
+    end if
+  end if
+  !
   if (loverwrite_props) then
     if (fileexist(f_out_csv)) then
       allocate(csv_old)
@@ -5476,7 +5520,7 @@ subroutine quad_grid_gen()
         allocate(disu)
         call disu%init()
         if(.not.lwrite_asc) then
-          f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+          f_binpos = trim(strip_ext(f_csv_dat))//'_grid_gen.binpos'
           call disu%init_csv(f_csv_dat, f_binpos)
         else
           call disu%init_csv(f_csv_dat)
@@ -5500,6 +5544,8 @@ subroutine quad_grid_gen()
             !cycle
           end if
         end if
+        call q%get_prop_csv(ikey=i_tgt_cs_min, r8v=cs_min_tgt)
+        call q%get_prop_csv(ikey=i_tgt_cs_max, r8v=cs_max_tgt)
         !
         if (lwrite_disu) then
           if (lwrite_asc) then
@@ -5520,6 +5566,8 @@ subroutine quad_grid_gen()
       else
         if (associated(csv_old)) then
           call logmsg('***** Using data from old csv for quad '//ta([q%gid])//' *****')
+          call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('tgt_cs_min'), r8v=cs_min_tgt)
+          call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('tgt_cs_max'), r8v=cs_max_tgt)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('nodes'), i4v=ncell)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('nja'), i4v=nja)
           call csv_old%get_val(ir=lid_map(lid), ic=csv_old%get_col('nlay_act'), i4v=nlay_act)
@@ -5535,13 +5583,15 @@ subroutine quad_grid_gen()
       end if
       !
       n = n + 1; ncell_tot = ncell_tot + ncell
-      call logmsg('***** '//ta([100.*real(n,R4B)/n_act],'(f6.2)')//' %: '// &
+      call logmsg('***** '//ta([100.*real(n,R4B)/xq%n_act],'(f6.2)')//' %: '// &
         trim(adjustl(ta([real(ncell_tot,R4B)/1000000.],'(f10.2)')))//' M cells *****')
       if (lskip) then
         call logmsg('********** SKIPPING QUAD *********')
         call q%set_flag(active=.false.)
       end if
       if (lwrite) then
+        call q%set_prop_csv(key='tgt_cs_min', r8v=cs_min_tgt)
+        call q%set_prop_csv(key='tgt_cs_max', r8v=cs_max_tgt)
         call q%set_prop_csv(key='nodes', i4v=ncell)
         call q%set_prop_csv(key='nja', i4v=nja)
         call q%set_prop_csv(key='nlay_act', i4v=nlay_act)
@@ -5562,7 +5612,9 @@ subroutine quad_grid_gen()
           end if
         end if
       end if
-      call disu%clean(); deallocate(disu)
+      if (associated(disu)) then
+        call disu%clean(); deallocate(disu); disu => null()
+      end if
     end if
     !
     !if (lwrite_props.and.((n == xq%n_act).or.(mod(n,write_csv_delta) == 0))) then
@@ -5642,7 +5694,7 @@ subroutine quad_grid_gen_merge()
     d = trim(mod_root_dir)//slash//ta([im]); call create_dir(d, .true.)
     f_csv_dat = trim(d)//slash//'dat.csv'
     if(.not.lwrite_asc) then
-      f_binpos = trim(strip_ext(f_csv_dat))//'.binpos'
+      f_binpos = trim(strip_ext(f_csv_dat))//'_grid_gen.binpos'
     end if
     !
     ! count

@@ -307,6 +307,7 @@ module quad2dModule
     procedure :: clean    => tDataModel_clean
     procedure :: get_ndat => tDataModel_get_ndat
     procedure :: get_dat  => tDataModel_get_dat
+    procedure :: get_id   => tDataModel_get_id
   end type tDataModel
   !
   integer(I4B), parameter :: NMAX_UNI_MAP = 100000
@@ -2019,6 +2020,26 @@ module quad2dModule
     return
   end function tDataModel_get_ndat
   !
+  function tDataModel_get_id(this, idat) result(id)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tDataModel) :: this
+    integer(I4B), intent(in) :: idat
+    character(len=MXSLEN) :: id
+    
+    ! -- local
+    type(tCSV), pointer ::  parm => null()
+! ------------------------------------------------------------------------------
+    !
+    parm => this%param_map
+    call parm%get_val(ir=idat, ic=parm%get_col('id'), cv=id)
+    !
+    return
+  end function tDataModel_get_id
+  
   subroutine tDataModel_get_dat(this, idat, dmdat, init_read)
 ! ******************************************************************************
 !
@@ -11536,7 +11557,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       call this%get_prop_csv(key='csv_dat', cv=f_csv_dat_loc)
     end if
     !
-    f_binpos = trim(strip_ext(f_csv_dat_loc))//'.binpos'
+    f_binpos = trim(strip_ext(f_csv_dat_loc))//'_data_write.binpos'
     allocate(disu%wbd); wbd => disu%wbd
     if (present(nr_max)) then
       call wbd%read_csv(f_csv_dat_loc, nr_max=nr_max)
