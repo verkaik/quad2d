@@ -5,8 +5,9 @@ module vrt_module
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
     ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
-    get_bb_extent, tCSV
+    get_bb_extent, tCSV, get_abs_file_name
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata, writeflt
+  use ifport
 
   implicit none
   
@@ -1030,11 +1031,14 @@ module vrt_module
     type(tBbX) :: gbbx, src_lbbx, dst_lbbx
     !
     character(len=MXSLEN) :: s, tile_source, file_name, file_ext
-    integer(I4B) :: itile, i, n, ir0, ir1
+    CHARACTER($MAXPATH) :: pathbuf
+    integer(I4B) :: itile, i, n, ir0, ir1, path_len, reltovrt
     real(R8B), dimension(6) :: gt
 ! ------------------------------------------------------------------------------
     !
-    this%f = f
+    path_len = fullpathqq(f, pathbuf)
+    ! store the full absolute path
+    this%f = trim(pathbuf)
     call open_file(this%f, this%iu, 'r')
     call this%read_ntiles(tile_source)
     
@@ -1069,8 +1073,15 @@ module vrt_module
       tile => this%tiles(itile)
       call tile%init()
       !
-      vl => raw%raw_mid(itile)%raw(i_SourceFilename); call vl%get(2, sv=s)
-      file_name = strip_ext(s); file_ext = get_ext(s)
+      vl => raw%raw_mid(itile)%raw(i_SourceFilename)
+      call vl%get(1, i4v=reltovrt)
+      call vl%get(2, sv=s)
+      if (reltovrt == 1) then
+        file_name = get_abs_file_name(this%f, s)
+      else
+        file_name = strip_ext(s)
+      end if
+      file_ext = get_ext(s)
       
       !i = index(s,'.',back=.true.); n = len_trim(s)
       !tile%file_name = s(1:i-1) !!!

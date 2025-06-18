@@ -10315,6 +10315,52 @@ end subroutine addboundary_r
     return
   end function base_name
   
+  function get_abs_file_name(f1, f2) result (fa)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    character(*), intent(in) :: f1
+    character(*), intent(in) :: f2
+    character(len=MXSLEN)    :: fa
+    ! -- local
+    character(len=1) :: slash
+    character(len=MXSLEN) :: s1, s2
+    integer(I4B) :: i1, i2, j, n
+! ------------------------------------------------------------------------------
+    !
+    slash = get_slash()
+    !
+    ! count the number of ..\
+    n = 0
+    s2 = trim(f2)
+    do while(.true.)
+      i2 = index(s2, '..\')
+      if (i2 > 0) then
+        n = n + 1
+        s2 = s2(i2+3:)
+      else
+        exit
+      end if
+    end do
+    !
+    s1 = trim(f1)
+    do j = 1, n + 1 ! include the file
+      i1 = index(s1, slash, back=.true.)
+      s1 = s1(1:i1-1)
+    end do
+    !
+    i2 = index(s2, '.\')
+    if (i2 > 0) then
+      s2 = s2(i2+2:)
+    end if
+    
+    fa = trim(s1)//slash//(s2)
+    !
+    return
+  end function get_abs_file_name
+  
   !###====================================================================
   function change_case(str, opt) result (string)
   !###====================================================================
