@@ -5,9 +5,8 @@ module vrt_module
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
     ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
-    get_bb_extent, tCSV, get_abs_file_name
+    get_bb_extent, tCSV, get_abs_file_name, rel_to_abs_file_name, get_slash
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata, writeflt
-  use ifport
 
   implicit none
   
@@ -153,17 +152,19 @@ module vrt_module
     integer(I4B), parameter :: MAXLINE = 1000
     character(len=MXSLEN), dimension(MAXLINE) :: sa
     character(len=MXSLEN) :: s, f, f_vrt
+    character(len=1) :: slash
     logical :: flag
     integer(I4B) :: ir, iu, ios, ilay
     integer(I4B), dimension(:), allocatable :: layers
     real(R4B) :: r4const
 ! ------------------------------------------------------------------------------
     !
+    f = this%f
+    !
     if (len_trim(f) == 0) then
       call errmsg('tVrtArray_init: file not present.')
     end if
     !
-    f = this%f
     call csv%read(f)
     call csv%get_column(key='layer', i4a=layers)
     this%n = maxval(layers)
@@ -175,9 +176,17 @@ module vrt_module
     allocate(this%iconst(this%n)); this%iconst = 0
     allocate(this%r4const(this%n)); this%r4const = R4ZERO
     
+    slash = get_slash()
+    
     do ir = 1, this%n
       ilay = layers(ir)
       call csv%get_val(ir=ir, ic=csv%get_col('file'), cv=f_vrt)
+      !
+      if ((index(f_vrt, '..'//slash) > 0).or. &
+          (index(f_vrt,  '.'//slash) > 0)) then
+        f_vrt = rel_to_abs_file_name(this%f, f_vrt)
+      end if
+      !
       this%active(ilay) = .true.
       if (len_trim(f_vrt) > 0) then
         vrt => this%vrta(ilay)
@@ -1031,14 +1040,12 @@ module vrt_module
     type(tBbX) :: gbbx, src_lbbx, dst_lbbx
     !
     character(len=MXSLEN) :: s, tile_source, file_name, file_ext
-    CHARACTER($MAXPATH) :: pathbuf
-    integer(I4B) :: itile, i, n, ir0, ir1, path_len, reltovrt
+    integer(I4B) :: itile, i, n, ir0, ir1, reltovrt
     real(R8B), dimension(6) :: gt
 ! ------------------------------------------------------------------------------
     !
-    path_len = fullpathqq(f, pathbuf)
     ! store the full absolute path
-    this%f = trim(pathbuf)
+    this%f = get_abs_file_name(f)
     call open_file(this%f, this%iu, 'r')
     call this%read_ntiles(tile_source)
     
@@ -1077,7 +1084,7 @@ module vrt_module
       call vl%get(1, i4v=reltovrt)
       call vl%get(2, sv=s)
       if (reltovrt == 1) then
-        file_name = get_abs_file_name(this%f, s)
+        file_name = rel_to_abs_file_name(this%f, s)
       else
         file_name = strip_ext(s)
       end if

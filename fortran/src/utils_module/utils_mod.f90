@@ -2,6 +2,7 @@ module utilsmod
   use, intrinsic :: iso_fortran_env , only: error_unit, output_unit, &
     I1B => int8, I2B => int16, I4B => int32, I8B => int64, &
     R4B => real32, R8B => real64
+  use ifport, only: fullpathqq, $MAXPATH
   
 #ifdef CHECK_NAN 
   use ieee_arithmetic, only: ieee_is_nan
@@ -10315,7 +10316,26 @@ end subroutine addboundary_r
     return
   end function base_name
   
-  function get_abs_file_name(f1, f2) result (fa)
+  function get_abs_file_name(fr) result (fa)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------  
+    ! -- dummy
+    character(*), intent(in) :: fr
+    character(len=MXSLEN)    :: fa
+    ! -- local
+    character($MAXPATH) :: pathbuf
+    integer(I4B) :: path_len
+! ------------------------------------------------------------------------------
+    !
+    path_len = fullpathqq(fr, pathbuf)
+    fa = trim(pathbuf)
+    !
+    return
+  end function get_abs_file_name
+  
+  function rel_to_abs_file_name(f1, f2) result (fa)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -10336,7 +10356,7 @@ end subroutine addboundary_r
     n = 0
     s2 = trim(f2)
     do while(.true.)
-      i2 = index(s2, '..\')
+      i2 = index(s2, '..'//slash)
       if (i2 > 0) then
         n = n + 1
         s2 = s2(i2+3:)
@@ -10351,7 +10371,7 @@ end subroutine addboundary_r
       s1 = s1(1:i1-1)
     end do
     !
-    i2 = index(s2, '.\')
+    i2 = index(s2, '.'//slash)
     if (i2 > 0) then
       s2 = s2(i2+2:)
     end if
@@ -10359,7 +10379,7 @@ end subroutine addboundary_r
     fa = trim(s1)//slash//(s2)
     !
     return
-  end function get_abs_file_name
+  end function rel_to_abs_file_name
   
   !###====================================================================
   function change_case(str, opt) result (string)

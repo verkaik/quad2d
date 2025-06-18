@@ -10,7 +10,7 @@ module quad2dModule
     strip_ext, apply_mask, &
     coarse_to_fine_grid, base_name, parse_line, get_slash, create_dir, get_unique, &
     cast_number_from_string, get_ext, change_case, fileexist, get_dir, &
-    quicksort_r
+    quicksort_r, get_abs_file_name
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
     i_uscl_arith, i_dscl_nointp, &
     uscl_names, dscl_names, n_uscl, n_dscl, i_uscl_nodata, i_dscl_nodata
@@ -2151,7 +2151,7 @@ module quad2dModule
         end if
         dat%i_type = i_vrt_array
         allocate(dat%vrta); vrta => dat%vrta
-        vrta%f = file
+        vrta%f = get_abs_file_name(file) ! store absolute path
         if (init_read_loc) call vrta%init()
       case('csv')
         dmdat%i_in_file_type = i_csv
