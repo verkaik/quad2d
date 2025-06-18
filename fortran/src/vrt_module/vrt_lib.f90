@@ -844,7 +844,7 @@ module vrt_module
 ! ==============================================================================
   
   subroutine tVrt_init_write(this, fp, data_type, f_tile, mv_tile, &
-    dst_bbi, dst_bbx, tile_topol)
+    dst_bbi, dst_bbx, tile_topol, reltovrt)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -858,12 +858,13 @@ module vrt_module
     type(tBb),  dimension(:), pointer, intent(in) :: dst_bbi
     type(tBbx), dimension(:), pointer, intent(in) :: dst_bbx
     integer(I4B), dimension(:,:), intent(in), optional :: tile_topol
+    logical, intent(in), optional :: reltovrt
     ! -- local
     type(tBB), pointer :: bbi_f => null(), bbi => null()
     type(tBBX), pointer :: bbx_f => null(), bbx => null()
     type(tVrtRawLine), pointer :: raw_line => null()
     type(tVrtRawLineSet), pointer :: raw_line_set => null()
-    character(len=MXSLEN) :: mv, s
+    character(len=MXSLEN) :: mv, s, f
     integer(I4B), dimension(:), allocatable :: nr_tile, nc_tile
     integer(I4B), dimension(:), allocatable :: ir_off,  ic_off
     integer(I4B) :: ntiles, itile, nc, nr, bnc, bnr, ic, ir
@@ -871,9 +872,14 @@ module vrt_module
     real(R8B), dimension(6) :: gt
     real(R8B), dimension(:), allocatable :: r8wk
     !
-    logical :: vert_stacked
+    logical :: vert_stacked, loc_reltovrt
 ! ------------------------------------------------------------------------------
     !
+    if (present(reltovrt)) then
+      loc_reltovrt = reltovrt
+    else
+      loc_reltovrt = .false.
+    end if
     this%f = trim(fp)//'.vrt'
     ntiles = size(dst_bbi)
     allocate(this%raw)
@@ -960,8 +966,14 @@ module vrt_module
       !
       raw_line_set => this%raw%raw_mid(itile)
       raw_line => raw_line_set%raw(2)
-      call raw_line%set(1, ta([0]))
-      call raw_line%set(2, trim(f_tile(itile)))
+      if (loc_reltovrt) then
+        call raw_line%set(1, ta([1]))
+        f = base_name(f_tile(itile))
+      else
+        call raw_line%set(1, ta([0]))
+        f = f_tile(itile)
+      end if
+      call raw_line%set(2, trim(f))
       !
       raw_line => raw_line_set%raw(4)
       call raw_line%set(1, ta([bbi%ncol]))

@@ -6589,9 +6589,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       allocate(mv_tile(ntile)); mv_tile = ta([mvr4])
       f = trim(f_vrt_pref)//'_p'//ta([kper],'(i3.3)')
       if (allocated(tile_topol)) then
-        call vrt%init_write(f, 'Float32', f_tile, mv_tile, bbi_tile, bbx_tile, tile_topol)
+        call vrt%init_write(f, 'Float32', f_tile, mv_tile, bbi_tile, bbx_tile, &
+          tile_topol, reltovrt=.true.)
       else
-        call vrt%init_write(f, 'Float32', f_tile, mv_tile, bbi_tile, bbx_tile)
+        call vrt%init_write(f, 'Float32', f_tile, mv_tile, bbi_tile, bbx_tile, &
+          reltovrt=.true.)
       end if
       call vrt%write()
       deallocate(mv_tile)
@@ -6602,9 +6604,11 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         allocate(mv_tile(ntile)); mv_tile = ta([0])
         f = trim(f_vrt_pref)//'_nod_map'
         if (allocated(tile_topol)) then
-          call vrt%init_write(f, 'Int32', f_tile_nodmap, mv_tile, bbi_tile, bbx_tile, tile_topol)
+          call vrt%init_write(f, 'Int32', f_tile_nodmap, mv_tile, bbi_tile, bbx_tile, &
+            tile_topol, reltovrt=.true.)
         else
-          call vrt%init_write(f, 'Int32', f_tile_nodmap, mv_tile, bbi_tile, bbx_tile)
+          call vrt%init_write(f, 'Int32', f_tile_nodmap, mv_tile, bbi_tile, bbx_tile, &
+          reltovrt=.true.)
         end if
         call vrt%write()
         deallocate(mv_tile)
