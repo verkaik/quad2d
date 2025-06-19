@@ -6731,6 +6731,26 @@ module utilsmod
     return
   end subroutine get_work_dir
   !
+  function is_rel_file(f) result(isrel)
+! ******************************************************************************
+    ! -- arguments
+    character(len=*), intent(in) :: f
+    logical :: isrel
+    ! -- locals
+    character(len=1) :: slash
+! ------------------------------------------------------------------------------
+    slash = get_slash()
+    if ((index(f, '..'//slash) > 0).or. &
+        (index(f,  '.'//slash) > 0).or. &
+        (index(f, slash) == 0)) then
+      isrel = .true.
+    else
+      isrel = .false.
+    end if
+    !
+    return
+  end function is_rel_file
+  
   subroutine get_abs_path(f)
 ! ******************************************************************************
     ! -- arguments

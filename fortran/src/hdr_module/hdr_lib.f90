@@ -4,7 +4,7 @@ module hdrModule
     MXSLEN, change_case, logmsg, errmsg, tNum, open_file, parse_line, ta, &
     get_bb_extent, R8HALF, R8ONE, tBb, tBbX, get_slash, get_xy, cast_2darray, strip_ext, &
     i_p, i_n, i_s, i_w, i_e, i_nw, i_ne, i_sw, i_se, bilinear_interpolation, get_stencil, &
-    check_nan
+    check_nan, is_rel_file, rel_to_abs_file_name
   !
   implicit none
   !
@@ -598,7 +598,7 @@ subroutine hdrhdr_clean(this)
     !
     if (s == 'envi') then
       this%i_file_type = i_env
-      call this%hdrhdr_read_envi(iu)
+      call this%hdrhdr_read_envi(iu, fp)
     else
       this%i_file_type = i_flt
       call this%hdrhdr_read_ehdr(iu)
@@ -608,11 +608,12 @@ subroutine hdrhdr_clean(this)
     return
   end subroutine hdrhdr_read
 
-  subroutine hdrhdr_read_envi(this, iu)
+  subroutine hdrhdr_read_envi(this, iu, fp)
 ! ******************************************************************************
     ! -- arguments
     class(thdrHdr) :: this
     integer(I4B), intent(in) :: iu
+    character(len=*) :: fp
     ! -- locals
     !
     ! parameters
@@ -630,7 +631,7 @@ subroutine hdrhdr_clean(this)
     !
     logical :: lerr
     !
-    character(len=MXSLEN) :: s, k
+    character(len=MXSLEN) :: s, k, f_bin
     character(len=MXSLEN), dimension(:), allocatable :: sa1, sa2
     !
     integer(I4B) :: ios, nrewind, nfound, iu_bin, i, i0, i1
@@ -728,7 +729,12 @@ subroutine hdrhdr_clean(this)
       !
       select case(k)
       case('bin_data')
-        this%f_bin = sa1(2)
+        f_bin = sa1(2)
+        if (is_rel_file(f_bin)) then
+          this%f_bin = rel_to_abs_file_name(fp, f_bin)
+        else
+          this%f_bin = sa1(2)
+        end if
       end select
       if (ios /= 0) then
         exit

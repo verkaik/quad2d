@@ -5,7 +5,7 @@ module vrt_module
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
     ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
-    get_bb_extent, tCSV, get_abs_file_name, rel_to_abs_file_name, get_slash
+    get_bb_extent, tCSV, get_abs_file_name, rel_to_abs_file_name, is_rel_file
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata, writeflt
 
   implicit none
@@ -176,14 +176,11 @@ module vrt_module
     allocate(this%iconst(this%n)); this%iconst = 0
     allocate(this%r4const(this%n)); this%r4const = R4ZERO
     
-    slash = get_slash()
-    
     do ir = 1, this%n
       ilay = layers(ir)
       call csv%get_val(ir=ir, ic=csv%get_col('file'), cv=f_vrt)
       !
-      if ((index(f_vrt, '..'//slash) > 0).or. &
-          (index(f_vrt,  '.'//slash) > 0)) then
+      if (is_rel_file(f_vrt).and.(len_trim(f_vrt) > 0)) then
         f_vrt = rel_to_abs_file_name(this%f, f_vrt)
       end if
       !
@@ -1085,6 +1082,7 @@ module vrt_module
       call vl%get(2, sv=s)
       if (reltovrt == 1) then
         file_name = rel_to_abs_file_name(this%f, s)
+        file_name = strip_ext(file_name)
       else
         file_name = strip_ext(s)
       end if
