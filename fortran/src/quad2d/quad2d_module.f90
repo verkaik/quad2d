@@ -5901,6 +5901,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             call q_m2%get_prop_csv(key=xch_id_field, cv=m2_id)
             id = trim(m1_id)//'-'//trim(m2_id)
             f = trim(root_dir)//slash//'exchangedata_'//trim(id)//'.asc'
+            f = get_abs_file_name(f) ! absolute file name
             call nintf%xch%write(f, id, wbd)
           end if
         end do

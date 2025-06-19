@@ -6,7 +6,7 @@ module main_module
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
     quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors, replace_token, &
-    get_elapsed_time
+    get_elapsed_time, get_abs_file_name
   use vrt_module, only: tVrt, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -5515,7 +5515,8 @@ subroutine quad_grid_gen()
         call logmsg('***** Processing quad '//ta([q%gid])//' *****')
         lwrite = .true.
         f_csv_dat = trim(q%mod_dir)//slash//'dat.csv'
-        
+        f_csv_dat = get_abs_file_name(f_csv_dat) ! change to absolute paths
+        !
         ! create the grid and store the arrays
         allocate(disu)
         call disu%init()
