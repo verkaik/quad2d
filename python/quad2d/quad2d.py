@@ -50,7 +50,7 @@ clp.add_argument('-mpi', '--mpi', type=str, \
 clp.add_argument('-np', '--np', type=int, default=1,
                 help='Number of MPI processes.')
 clp.add_argument('-mf6', '--mf6', type=str,
-                default=r'c:\data\codes\git\modflow6-parallel-fork-18-03-21\bin\mf6.old.exe',
+                default=r'c:\data\codes\git\modflow6-parallel-CLEAN\bin\mf6_ifx_2024.2.1_impi_2021.13.1_rel.exe',
                 help='MODFLOW 6 executable.')
 clp.add_argument('-mfsim', '--mfsim', type=str,
                 default=r'mfsim.nam',
