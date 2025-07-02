@@ -3120,10 +3120,12 @@ module utilsmod
       found = .false.
     end if
     !
-    sect => this%sect(i)
-    loc = findloc(sect%keys, trim(key)); i = loc(1)
-    if (i <= 0) then
-      found = .false.
+    if (found) then
+      sect => this%sect(i)
+      loc = findloc(sect%keys, trim(key)); i = loc(1)
+      if (i <= 0) then
+        found = .false.
+      end if
     end if
     !
     if (.not.found) then
@@ -3154,10 +3156,10 @@ module utilsmod
       end if
       if (.not. use_def) then
         call errmsg('tIni_get_val: could set value for key '//trim(key)//&
-          ' in ['//trim(sect%name)//'].')
+          ' in ['//trim(sect_name)//'].')
       else
         call logmsg('Using default value for key '//trim(key)//&
-          ' in ['//trim(sect%name)//']: '//trim(adjustl(s)))
+          ' in ['//trim(sect_name)//']: '//trim(adjustl(s)))
       end if
     else
       v => sect%v(i)
@@ -6544,6 +6546,28 @@ module utilsmod
     !
     return
   end subroutine swap_slash
+  
+  subroutine add_slash(s)
+! ******************************************************************************
+    ! -- arguments
+    character(len=*), intent(inout) :: s
+    ! -- locals
+    character(len=1) :: slash
+    integer(I4B) :: n, nt
+! ------------------------------------------------------------------------------
+    n = len(s)
+    nt = len_trim(s)
+    !
+    if ((s(nt:nt) /= lin_slash) .and. (s(nt:nt) /= win_slash)) then
+      if (n == nt) then
+        call errmsg('add_slash: invalid string length')
+      end if
+      slash = get_slash()
+      s(nt+1:nt+1) = slash
+    end if
+    !
+    return
+  end subroutine add_slash
   !
   function get_slash() result(slash)
 ! ******************************************************************************

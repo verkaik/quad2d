@@ -6,7 +6,7 @@ module main_module
     calc_unique, change_case, get_compiler, split_str, get_ext, read_line, parse_line, fileexist, fillgap, &
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
     quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors, replace_token, &
-    get_elapsed_time, get_abs_file_name
+    get_elapsed_time, get_abs_file_name, add_slash
   use vrt_module, only: tVrt, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
@@ -67,6 +67,7 @@ module main_module
   character(len=MXSLEN) :: f_exe
   character(len=MXSLEN) :: elapsed_line
   character(len=MXSLEN) :: vtk_lid
+  character(len=MXSLEN) :: gid_list_s
   !
   ! fields
   character(len=MXSLEN), dimension(n_prop_field) :: fields
@@ -171,7 +172,7 @@ subroutine quad_settings()
     run_opt = 1
     !=========!
     call ini%get_val(sect, 'f_vrt',    cv=f_vrt)
-    call ini%get_val(sect, 'd_out',    cv=d_out)
+    call ini%get_val(sect, 'd_out',    cv=d_out); call add_slash(d_out)
     call ini%get_val(sect, 'renumber', l4v=lrenumber, l4v_def=.false.)
     call ini%get_val(sect, 'split',    l4v=lsplit, l4v_def=.false.)
     call ini%get_val(sect, 'join',     l4v=ljoin, l4v_def=.false.)
@@ -188,7 +189,7 @@ subroutine quad_settings()
     !=========!
     call ini%get_val(sect, 'write_props', l4v=lwrite_props, l4v_def=.true.)
     !
-    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
@@ -199,7 +200,7 @@ subroutine quad_settings()
     !=========!
     call ini%get_val(sect, 'write_props', l4v=lwrite_props, l4v_def=.false.)
     !
-    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
@@ -213,7 +214,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
     call ini%get_val(sect, 'i_i_graph_field', cv=fields(i_i_graph), cv_def='i_i_graph')
     !
-    call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
+    call ini%get_val(sect, 'lay_mod_field',   cv=fields(i_lay_mod), cv_def='lay_mod')
   case('grid_gen','grid_gen_merge')
     !=========!
     if (sect == 'grid_gen') then
@@ -226,7 +227,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'overwrite_props', l4v=loverwrite_props, l4v_def=.false.)
     call ini%get_val(sect, 'write_asc', l4v=lwrite_asc, l4v_def=.false.)
     !
-    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
@@ -243,12 +244,12 @@ subroutine quad_settings()
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
     call ini%get_val(sect, 'i_i_graph_field', cv=fields(i_i_graph), cv_def='i_i_graph')
     !
-    call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
-    call ini%get_val(sect, 'tgt_cs_min_field',         cv=fields(i_tgt_cs_min))
-    call ini%get_val(sect, 'tgt_cs_max_field',         cv=fields(i_tgt_cs_max))
+    call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod),            cv_def='lay_mod')
+    call ini%get_val(sect, 'tgt_cs_min_field',         cv=fields(i_tgt_cs_min),         cv_def='tgt_cs_min')
+    call ini%get_val(sect, 'tgt_cs_max_field',         cv=fields(i_tgt_cs_max),         cv_def='tgt_cs_max')
     call ini%get_val(sect, 'tgt_cs_min_lay_beg_field', cv=fields(i_tgt_cs_min_lay_beg), cv_def='')
     call ini%get_val(sect, 'tgt_cs_min_lay_end_field', cv=fields(i_tgt_cs_min_lay_end), cv_def='')
-    call ini%get_val(sect, 'tgt_cs_min_dz_top_field',  cv=fields(i_tgt_cs_min_dz_top), cv_def='')
+    call ini%get_val(sect, 'tgt_cs_min_dz_top_field',  cv=fields(i_tgt_cs_min_dz_top),  cv_def='min_dz_top')
     !
     call ini%get_val(sect, 'mod_root_dir', cv=mod_root_dir)
     call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='gid')
@@ -259,6 +260,7 @@ subroutine quad_settings()
       call ini%get_val(sect, 'i_merge', cv=fields(i_merge))
     end if
     !
+    call ini%get_val(sect, 'gid_list', cv=gid_list_s, cv_def='')
   case('mf6_xch_write','mf6_xch_write_merge')
     if (sect == 'mf6_xch_write') then
       run_opt = 5
@@ -266,7 +268,7 @@ subroutine quad_settings()
       run_opt = 19
     end if
     !=========!
-    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
@@ -276,21 +278,21 @@ subroutine quad_settings()
     call ini%get_val(sect, 'f_out_csv', cv=f_out_csv)
     !
     call ini%get_val(sect, 'xch_root_dir', cv=xch_root_dir)
-    call ini%get_val(sect, 'xch_id_field', cv=xch_id_field, cv_def='lid')
+    call ini%get_val(sect, 'xch_id_field', cv=xch_id_field, cv_def='gid')
     
     call ini%get_val(sect, 'lid_field',       cv=fields(i_lid),     cv_def='lid')
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
     call ini%get_val(sect, 'i_i_graph_field', cv=fields(i_i_graph), cv_def='i_i_graph')
     !
-    call ini%get_val(sect, 'lay_mod_field',            cv=fields(i_lay_mod))
+    call ini%get_val(sect, 'lay_mod_field',   cv=fields(i_lay_mod), cv_def='lay_mod')
   case('mf6_data_write', 'mf6_data_write_merge')
     if (sect == 'mf6_data_write') then
       run_opt = 6
     else
       run_opt = 18
     end if
-    call ini%get_val(sect, 'd_in',    cv=d_in)
-    call ini%get_val(sect, 'd_log',   cv=d_log, cv_def='')
+    call ini%get_val(sect, 'd_in',    cv=d_in,  cv_def='.'); call add_slash(d_in)
+    call ini%get_val(sect, 'd_log',   cv=d_log, cv_def=''); call add_slash(d_log)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
@@ -299,19 +301,20 @@ subroutine quad_settings()
     end if
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
-    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_mod_csv',      cv=f_lay_mod_csv)
     call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
-    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
+    call ini%get_val(sect, 'lay_mod_field',      cv=fields(i_lay_mod), cv_def='lay_mod')
     !
     call ini%get_val(sect, 'f_dat_mod_csv', cv=f_dat_mod_csv)
-    call ini%get_val(sect, 'dat_mod_field', cv=fields(i_dat_mod))
+    call ini%get_val(sect, 'dat_mod_field', cv=fields(i_dat_mod), cv_def='dat_mod')
     
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
     call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
     !
     call ini%get_val(sect, 'mod_root_dir', cv=mod_root_dir)
-    call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='')
+    call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='gid')
+    call ini%get_val(sect, 'gid_list', cv=gid_list_s, cv_def='')
   case('partition')
     !=========!
     run_opt = 7
@@ -329,24 +332,24 @@ subroutine quad_settings()
     call ini%get_val(sect, 'neighbor_nr_cells_field',  cv=part_fields(i_neighbor_nr_cells), &
       cv_def='neighbor_nr_cells')
     
-    call ini%get_val(sect, 'sel_field', cv=sel_field)
-    call ini%get_val(sect, 'sel_val',   cv=sel_val)
+    call ini%get_val(sect, 'sel_field', cv=sel_field, cv_def='i_graph')
+    call ini%get_val(sect, 'sel_val',   cv=sel_val,   cv_def='1')
     call ini%get_val(sect, 'sel_npart', cv=sel_npart, cv_def='')
     call ini%get_val(sect, 'sel_nodes', cv=sel_nodes, cv_def='')
   case('mf6_post')
     !=========!
     run_opt = 8
     !=========!
-    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
     call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge, cv_def='')
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
-    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_mod_csv',      cv=f_lay_mod_csv)
     call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
-    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
+    call ini%get_val(sect, 'lay_mod_field',      cv=fields(i_lay_mod), cv_def='lay_mod')
     !
     call ini%get_val(sect, 'f_lay_mod_output_csv', cv=f_lay_mod_output_csv)
     !
@@ -369,7 +372,7 @@ subroutine quad_settings()
     !
     if (write_chd) then
       call ini%get_val(sect, 'mod_root_dir', cv=mod_root_dir)
-      call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields)
+      call ini%get_val(sect, 'mod_sub_dir_fields', cv=mod_sub_dir_fields, cv_def='gid')
     end if
     !
     call ini%get_val(sect, 'vtk_lid',cv=vtk_lid, cv_def='')
@@ -386,16 +389,16 @@ subroutine quad_settings()
     !=========!
     run_opt = 22
     !=========!
-    call ini%get_val(sect, 'd_in',    cv=d_in)
+    call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
     !
     call ini%get_val(sect, 'f_in_csv', cv=f_in_csv)
     call ini%get_val(sect, 'f_in_csv_merge', cv=f_in_csv_merge, cv_def='')
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
-    call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
+    call ini%get_val(sect, 'f_lay_mod_csv',      cv=f_lay_mod_csv)
     call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
-    call ini%get_val(sect, 'lay_mod_field',    cv=fields(i_lay_mod))
+    call ini%get_val(sect, 'lay_mod_field',      cv=fields(i_lay_mod), cv_def='lay_mod')
     !
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
@@ -5061,10 +5064,29 @@ subroutine quad_mf6_data_write()
   logical :: writelog, filter_id, skip_id
   integer(I4B) :: lid0, lid1, n_act, iu, idat, nid_args
   !
-  integer(I4B), dimension(:), allocatable :: i4a
+  integer(I4B), dimension(:), allocatable :: i4a, gid_list, gid_arr
   real(R8B), dimension(:), allocatable :: r8a
   real(R8B), dimension(:,:), allocatable :: r8x
+  integer(I4B) :: gid, gid_max
 ! ------------------------------------------------------------------------------
+  gid_max = 0
+  do lid = 1, xq%n
+    q => xq%get_quad(lid)
+    if (q%get_flag(active=LDUM)) then
+      gid_max = max(gid_max, q%gid)
+    end if
+  end do
+  !
+  if (len_trim(gid_list_s) > 0) then
+    call parse_line(s=gid_list_s, i4a=gid_list, token_in=',')
+    if (minval(gid_list) <= 0) then
+      call errmsg('gid_list: zero or negative values are not allowed!')
+    end if
+    gid_max = max(gid_max, maxval(gid_list))
+  end if
+  !
+  allocate(gid_arr(gid_max)); gid_arr = 0
+  !
   ! set the ranges
   if (lid_min > 0) then
      lid0 = max(1,lid_min)
@@ -5080,12 +5102,24 @@ subroutine quad_mf6_data_write()
     call errmsg('quad_mf6_data_write: lid_min > lid_max.')
   end if
   !
-  ! determine total number of active quads
-  n_act = 0
   do lid = lid0, lid1
     q => xq%get_quad(lid)
-    if (q%get_flag(active=LDUM)) n_act = n_act + 1
+    if (q%get_flag(active=LDUM)) then
+      gid = q%gid
+      gid_arr(gid) = 1
+    end if
   end do
+  !
+  ! gid_list option overwrites the lid0/lid1
+  if (len_trim(gid_list_s) > 0) then
+    gid_arr = 0
+    do i = 1, size(gid_list)
+      gid = gid_list(i)
+      gid_arr(gid) = 1
+    end do
+  end if
+  !
+  n_act = sum(gid_arr)
   !
   if (len_trim(d_log) > 0) then
     writelog = .true.
@@ -5104,13 +5138,16 @@ subroutine quad_mf6_data_write()
   end if
   !
   n = 0
-  do lid = lid0, lid1
+  do lid = 1, xq%n
     q => xq%get_quad(lid)
     !
     ! DEBUG:
     !if (q%gid /= 637452) cycle
     !
     if (q%get_flag(active=LDUM)) then
+      gid = q%gid
+      if (gid_arr(gid) == 0) cycle
+      !
       call logmsg('***** Processing quad '//ta([q%gid])//' *****')
       !
       call q%grid_init()
@@ -5420,8 +5457,10 @@ subroutine quad_grid_gen()
   character(len=MXSLEN) :: f_csv_dat, f_binpos, s_lay_act
   logical :: lactive, lskip, lwrite, lok
   integer(I4B), dimension(:), allocatable :: lay, lid_map, lid_arr
+  integer(I4B), dimension(:), allocatable :: gid_list, gid_arr
   integer(I4B) :: ncell_tot, ncell, nja, nlay_act, ngrid, write_csv_delta
   integer(I4B) :: lid0, lid1, n_act, i, n, regrid_flag
+  integer(I4B) :: gid_max
   real(R8B) :: cs_min_rea, cs_max_rea, cs_min_tgt, cs_max_tgt
 ! ------------------------------------------------------------------------------
   ncell_tot = 0; n = 0
@@ -5443,25 +5482,30 @@ subroutine quad_grid_gen()
     if (lwrite_disu) call csv%add_key('csv_dat')
   end if
   !
-  if ((lid_min == 0).and.(lid_max == 0)) then
+  if ((lid_min == 0).and.(lid_max == 0).and.(len_trim(gid_list_s) == 0)) then
     if (loverwrite_props) then
       call logmsg('***** Ignoring option: overwrite_props *****')
       loverwrite_props = .false.
     end if
   end if
   !
-  if (loverwrite_props) then
-    if (fileexist(f_out_csv)) then
-      allocate(csv_old)
-      call csv_old%read(f_out_csv)
-      call csv_old%get_column(key=fields(i_lid),i4a=lid_arr)
-      n = maxval(lid_arr); allocate(lid_map(n)); lid_map = 0
-      do i = 1, size(lid_arr)
-        lid = lid_arr(i)
-        lid_map(lid) = i
-      end do
+  gid_max = 0
+  do lid = 1, xq%n
+    q => xq%get_quad(lid)
+    if (q%get_flag(active=LDUM)) then
+      gid_max = max(gid_max, q%gid)
     end if
+  end do
+  !
+  if (len_trim(gid_list_s) > 0) then
+    call parse_line(s=gid_list_s, i4a=gid_list, token_in=',')
+    if (minval(gid_list) <= 0) then
+      call errmsg('gid_list: zero or negative values are not allowed!')
+    end if
+    gid_max = max(gid_max, maxval(gid_list))
   end if
+  !
+  allocate(gid_arr(gid_max)); gid_arr = 0
   !
   ! set the ranges
   if (lid_min > 0) then
@@ -5478,12 +5522,37 @@ subroutine quad_grid_gen()
     call errmsg('lid_min > lid_max.')
   end if
   !
-  ! determine total number of active quads
-  n_act = 0
   do lid = lid0, lid1
     q => xq%get_quad(lid)
-    if (q%get_flag(active=LDUM)) n_act = n_act + 1
+    if (q%get_flag(active=LDUM)) then
+      gid = q%gid
+      gid_arr(gid) = 1
+    end if
   end do
+  !
+  ! gid_list option overwrites the lid0/lid1
+  if (len_trim(gid_list_s) > 0) then
+    gid_arr = 0
+    do i = 1, size(gid_list)
+      gid = gid_list(i)
+      gid_arr(gid) = 1
+    end do
+  end if
+  !
+  n_act = sum(gid_arr)
+  !
+  if (loverwrite_props) then
+    if (fileexist(f_out_csv)) then
+      allocate(csv_old)
+      call csv_old%read(f_out_csv)
+      call csv_old%get_column(key=fields(i_lid),i4a=lid_arr)
+      n = maxval(lid_arr); allocate(lid_map(n)); lid_map = 0
+      do i = 1, size(lid_arr)
+        lid = lid_arr(i)
+        lid_map(lid) = i
+      end do
+    end if
+  end if
   !
   n = 0
   slash = get_slash()
@@ -5511,7 +5580,8 @@ subroutine quad_grid_gen()
     if (lactive) then
       !
       lskip = .false.
-      if ((lid >= lid0).and.(lid <= lid1)) then
+      gid = q%gid
+      if (gid_arr(gid) == 1) then
         call logmsg('***** Processing quad '//ta([q%gid])//' *****')
         lwrite = .true.
         f_csv_dat = trim(q%mod_dir)//slash//'dat.csv'
@@ -5628,6 +5698,8 @@ subroutine quad_grid_gen()
     call csv_old%clean(); deallocate(csv_old); csv_old => null()
   end if
   if (allocated(lid_arr)) deallocate(lid_arr)
+  if (allocated(gid_arr)) deallocate(gid_arr)
+  if (allocated(gid_list)) deallocate(gid_list)
   if (allocated(lid_map)) deallocate(lid_map)
   !
   return

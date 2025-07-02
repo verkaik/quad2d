@@ -75,6 +75,7 @@ clp.add_argument('-cgc', '--cgc', action='store_true', default=False,
 clp.add_argument('-cgc_solver', '--cgc_solver', type=int, default=1,
                 help='Coarse grid correction solver (1: LU; 2: ILU(0)).')
 clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
+clp.add_argument('-id_field', '--id_field', type=str, default='gid', help='Field for the IDs.')
 
 #args = '-ini hegewarren.ini -pre -run -coupled -parallel -np 2 -runopt ss'
 #cla = clp.parse_args(args.split()).__dict__
@@ -102,16 +103,19 @@ def get_cla_key(key):
     return cla[key]
 
 #############################################################################
-def read_csv(f, filter_ids=[]):
+def read_csv(f, id_field, filter_ids=[]):
 #############################################################################
     log.info('Reading %s...'%f)
     reader = csv.reader(open(f, 'r'))
     i = 0; d = {}
     for row in reader:
         if (i == 0):
-            hdr = row[1:]
+            if id_field not in row:
+                raise Exception(f"Field {id_field} not found.")
+            i_id = row.index(id_field)
+            hdr = row; hdr.remove(id_field)
         else:
-            id = row[0]
+            id = row[i_id]
             #
             if not filter_ids:
                 add_id = True
@@ -128,8 +132,11 @@ def read_csv(f, filter_ids=[]):
             if add_id:
                 #print(id)
                 #print(row)
-                d[id] = {hdr[i]:row[i+1] for i in range(len(hdr))}
+                row_clip = row
+                del row_clip[i_id]
+                d[id] = {hdr[i]: row_clip[i] for i in range(len(hdr))}
         i += 1
+
     return d
 
 #############################################################################
@@ -457,7 +464,7 @@ def write_exchanges(d_ini, d_xch, d_template, d_mf6_mod, rep_dict):
                 p = Path(fdir)
                 if not p.exists():
                     log.info(f'Creating folder {p}')
-                    p.mkdir()
+                    p.mkdir(parents=True, exist_ok=True)
                 for xch in d_xch:
                     f = p.joinpath(xch + '.' + section)
                     xch_type_a = xch_type.split('-')[0]
@@ -990,7 +997,7 @@ def write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
     mod_dir = p.parents[0]
     if not p.is_file():
         log_error(f'File {f_csv_dat} not found.')
-    d_mod_csv = read_csv(str(p))
+    d_mod_csv = read_csv(str(p), 'id')
 
     # models
     gwf_mfname = write_gwf_model(id, nodes, nja, d_mod_ini, d_template, \
@@ -1073,11 +1080,12 @@ def pre():
 
     # read the properties
     f = get_key(d_ini, '_general', 'props_csv')
-    d_props = read_csv(f, filter_ids=id_list)
+    id_field = get_cla_key('id_field')
+    d_props = read_csv(f, id_field, filter_ids=id_list)
 
     # read the exchanges
     f = get_key(d_ini, '_general', 'exchanges_csv')
-    d_xch = read_csv(f, filter_ids=id_list)
+    d_xch = read_csv(f, 'id', filter_ids=id_list)
 
     # set the id list
     if not id_list:
