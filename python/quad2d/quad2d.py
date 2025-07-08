@@ -76,6 +76,9 @@ clp.add_argument('-cgc_solver', '--cgc_solver', type=int, default=1,
                 help='Coarse grid correction solver (1: LU; 2: ILU(0)).')
 clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
 clp.add_argument('-id_field', '--id_field', type=str, default='gid', help='Field for the IDs.')
+clp.add_argument('-props_csv', '--props_csv', type=str, default=None, help='CSV with properties.')
+clp.add_argument('-exchanges_csv', '--exchanges_csv', type=str, default=None, help='CSV for exchanges.')
+clp.add_argument('-replace_dict', '--replace_dict', type=str, default='{}', help='CSV for exchanges.')
 
 #args = '-ini hegewarren.ini -pre -run -coupled -parallel -np 2 -runopt ss'
 #cla = clp.parse_args(args.split()).__dict__
@@ -1064,7 +1067,7 @@ def pre():
 
     d_ini = read_ini(f_ini)
     check_main_ini(d_ini,['_general', 'sim-tdis'+'_'+get_cla_key('runopt'), \
-        'sim-nam'+'_'+get_cla_key('runopt')])
+        'sim-nam' + '_' + get_cla_key('runopt')])
     #
     # get the list of model ids
     if key_present(d_ini, '_general', 'model_id'):
@@ -1076,15 +1079,23 @@ def pre():
     if key_present(d_ini, '_general', 'replace_dict'):
         rep_dict = get_key(d_ini, '_general', 'replace_dict', eval_k=True)
     else:
-        rep_dict = {}
+        rep_dict = eval(get_cla_key('replace_dict'))
 
     # read the properties
-    f = get_key(d_ini, '_general', 'props_csv')
+    if key_present(d_ini, '_general', 'props_csv'):    
+        f = get_key(d_ini, '_general', 'props_csv')
+    else:
+        f = get_cla_key('props_csv')
+
     id_field = get_cla_key('id_field')
     d_props = read_csv(f, id_field, filter_ids=id_list)
 
     # read the exchanges
-    f = get_key(d_ini, '_general', 'exchanges_csv')
+    if key_present(d_ini, '_general', 'exchanges_csv'):    
+        f = get_key(d_ini, '_general', 'exchanges_csv')
+    else:
+        f = get_cla_key('exchanges_csv')
+
     d_xch = read_csv(f, 'id', filter_ids=id_list)
 
     # set the id list
