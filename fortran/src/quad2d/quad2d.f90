@@ -5148,7 +5148,8 @@ subroutine quad_mf6_data_write()
       gid = q%gid
       if (gid_arr(gid) == 0) cycle
       !
-      call logmsg('***** Processing quad '//ta([q%gid])//' *****')
+      call logmsg('***** Processing quad with global id '//ta([q%gid])//' *****')
+      call logmsg('Data model: "'//trim(q%dat_mod%name)//'"...')
       !
       call q%grid_init()
       do idat = 1, q%dat_mod%get_ndat()
@@ -5582,7 +5583,7 @@ subroutine quad_grid_gen()
       lskip = .false.
       gid = q%gid
       if (gid_arr(gid) == 1) then
-        call logmsg('***** Processing quad '//ta([q%gid])//' *****')
+        call logmsg('***** Processing quad with global id '//ta([q%gid])//' *****')
         lwrite = .true.
         f_csv_dat = trim(q%mod_dir)//slash//'dat.csv'
         f_csv_dat = get_abs_file_name(f_csv_dat) ! change to absolute paths

@@ -4,7 +4,7 @@ module hdrModule
     MXSLEN, change_case, logmsg, errmsg, tNum, open_file, parse_line, ta, &
     get_bb_extent, R8HALF, R8ONE, tBb, tBbX, get_slash, get_xy, cast_2darray, strip_ext, &
     i_p, i_n, i_s, i_w, i_e, i_nw, i_ne, i_sw, i_se, bilinear_interpolation, get_stencil, &
-    check_nan, is_rel_file, rel_to_abs_file_name
+    check_nan, is_rel_file, rel_to_abs_file_name, LOG_LEV_DEB
   !
   implicit none
   !
@@ -2111,7 +2111,7 @@ subroutine hdrhdr_clean(this)
     !
     bbi%ic0 = ic0; bbi%ic1 = ic1; bbi%ir0 = ir0; bbi%ir1 = ir1
     if (associated(this%dat_buf)) then
-      call logmsg('Re-using data...')
+      call logmsg('Re-using data...', LOG_LEV_DEB)
       call this%clean_dat()
       allocate(this%dat)
       call this%dat_buf%copy(this%dat)
@@ -2158,7 +2158,7 @@ subroutine hdrhdr_clean(this)
     end if
     
     if (dst_cs == src_hdr%csr8) then ! no scaling
-      call logmsg('---> No scaling applied <---')
+      call logmsg('---> No scaling applied <---', LOG_LEV_DEB)
     else if (dst_cs > src_hdr%csr8) then ! upscale
       call this%up_scale(ius, dst_cs)
     else ! downscaling
@@ -2204,13 +2204,13 @@ subroutine hdrhdr_clean(this)
     !
     select case(i_uscl)
     case(i_uscl_arith, i_uscl_nodata)
-      call logmsg('---> Upscaling: artihmetic <---')
+      call logmsg('---> Upscaling: artihmetic <---', LOG_LEV_DEB)
     case(i_uscl_geom)
-      call logmsg('---> Upscaling: geometric <---')
+      call logmsg('---> Upscaling: geometric <---', LOG_LEV_DEB)
     case(i_uscl_sumcdr)
-      call logmsg('---> Upscaling: sum conductance <---')
+      call logmsg('---> Upscaling: sum conductance <---', LOG_LEV_DEB)
     case(i_uscl_sumcdr_cinp)
-      call logmsg('---> Upscaling: sum conductance *** RESISTANCE AS INPUT *** <---')
+      call logmsg('---> Upscaling: sum conductance *** RESISTANCE AS INPUT *** <---', LOG_LEV_DEB)
     case default
       call errmsg('Not supported upscaling method.')
     end select
@@ -2325,10 +2325,10 @@ subroutine hdrhdr_clean(this)
     mc = src_hdr%ncol*ns; mr = src_hdr%nrow*ns
     !
     if (cfa) then
-      call logmsg('---> Down-scaling: sampling with area correction <---')
+      call logmsg('---> Down-scaling: sampling with area correction <---', LOG_LEV_DEB)
       cfr8 = R8ONE/(ns**2)
     else
-      call logmsg('---> Down-scaling: sampling <---')
+      call logmsg('---> Down-scaling: sampling <---', LOG_LEV_DEB)
       cfr8 = R8ONE
     end if
     !
@@ -2416,7 +2416,7 @@ subroutine hdrhdr_clean(this)
     integer(I4B) :: ic1, ir1, ic2, ir2, ic3, ir3, ic4, ir4
 ! ------------------------------------------------------------------------------
     !
-    call logmsg('---> Down-scaling: bi-linear interpolation <---')
+    call logmsg('---> Down-scaling: bi-linear interpolation <---', LOG_LEV_DEB)
     !
     src_hdr => this%hdr; dat => this%dat
     ns = src_hdr%csr8/dst_cs

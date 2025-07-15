@@ -2152,7 +2152,7 @@ module quad2dModule
         dat%i_type = i_vrt_array
         allocate(dat%vrta); vrta => dat%vrta
         vrta%f = get_abs_file_name(file) ! store absolute path
-        if (init_read_loc) call vrta%init()
+        if (init_read_loc) call vrta%init(dmdat%id)
       case('csv')
         dmdat%i_in_file_type = i_csv
         dat%i_type = i_csv
@@ -2167,6 +2167,11 @@ module quad2dModule
         call parl%get_val(ir=ir, ic=parl%get_col('constant'), cv=s)
         dat%lconst = .true.
         read(s,*) dat%r8const
+        if (dmdat%ndat > 1) then
+          call logmsg('Setting constant value for "'//trim(dmdat%id)//'" idat '//ta([i])//': '//trim(s)//'...')
+        else
+          call logmsg('Setting constant value for "'//trim(dmdat%id)//'": '//trim(s)//'...')
+        end if
       case default
         call errmsg('File not recognized: '//trim(file))
       end select
@@ -11718,7 +11723,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end if
     !
     if ((.not.li4a).and.(.not.lr8a).and.(.not.lr8x)) then
-      call logmsg('No writing of MODFLOW 6 data...')
+      call logmsg('No writing of MODFLOW 6 data for "'//trim(id)//'"...')
       return
     end if
     !
@@ -12020,7 +12025,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
       if (f1d(i) > R4ZERO) ncell = ncell + 1
     end do
     if (ncell == 0) then
-      call logmsg('No data found...')
+      call logmsg('No data found for "'//trim(this%id)//'"...')
       ! clean up
       if (allocated(mga_read)) then
         call mga_read%clean()

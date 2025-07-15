@@ -5,7 +5,8 @@ module vrt_module
     logmsg, errmsg, tBb, tBbX, tBbObj, MXSLEN, open_file, read_line, &
     renumber, bbi_intersect, bbx_intersect, base_name, get_xy, get_icr,&
     ta, swap_slash, point_in_bb, strip_ext, get_ext, change_case, valid_icr, &
-    get_bb_extent, tCSV, get_abs_file_name, rel_to_abs_file_name, is_rel_file
+    get_bb_extent, tCSV, get_abs_file_name, rel_to_abs_file_name, is_rel_file, &
+    LOG_LEV_DEB
   use hdrModule, only: tHdrHdr, tHdr, i_uscl_nodata, i_dscl_nodata, writeflt
 
   implicit none
@@ -139,19 +140,20 @@ module vrt_module
 ! ==============================================================================
 ! ==============================================================================
   
-  subroutine tVrtArray_init(this)
+  subroutine tVrtArray_init(this, id_in)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tVrtArray) :: this
+    character(len=*), optional :: id_in
     ! -- local
     type(tVrt), pointer :: vrt => null()
     type(tCSV) :: csv
     integer(I4B), parameter :: MAXLINE = 1000
     character(len=MXSLEN), dimension(MAXLINE) :: sa
-    character(len=MXSLEN) :: s, f, f_vrt
+    character(len=MXSLEN) :: s, f, f_vrt, id
     character(len=1) :: slash
     logical :: flag
     integer(I4B) :: ir, iu, ios, ilay
@@ -159,6 +161,13 @@ module vrt_module
     real(R4B) :: r4const
 ! ------------------------------------------------------------------------------
     !
+    if (present(id_in)) then
+      id = id_in
+    else
+      id = ''
+    end if
+    !
+    
     f = this%f
     !
     if (len_trim(f) == 0) then
@@ -190,7 +199,7 @@ module vrt_module
         call vrt%init(f_vrt)
       else
         call csv%get_val(ir=ir, ic=csv%get_col('constant'), r4v=r4const)
-        call logmsg('Setting constant value: '//ta([r4const])//'...')
+        call logmsg('Setting constant value for "'//trim(id)//'" layer '//ta([ilay])//': '//ta([r4const])//'...')
         this%iconst(ilay) = 1
         this%r4const(ilay) = r4const
       end if
@@ -1657,7 +1666,7 @@ module vrt_module
             act_tile(n_act) = itile
             act_tile_cs(n_act) = tbbx%cs
             call tile%get(full_file_name=f) 
-            call logmsg('tVrt_get_act_tile: intersection found for '//trim(base_name(f)))
+            call logmsg('tVrt_get_act_tile: intersection found for '//trim(base_name(f)), LOG_LEV_DEB)
           end if
         end if
       end do

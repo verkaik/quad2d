@@ -504,6 +504,14 @@ module utilsmod
     procedure :: clean => timeseries_clean
   end type tTimeSeries
   
+  integer(I4B), parameter :: LOG_LEV_DEB = 1
+  integer(I4B), parameter :: LOG_LEV_RUN = 2
+#if (defined(__LOG_LEV_DEB__))
+  integer(I4B) :: log_lev = LOG_LEV_DEB
+#else
+  integer(I4B) :: log_lev = LOG_LEV_RUN
+#endif
+
   save
 
   contains
@@ -6876,25 +6884,25 @@ module utilsmod
     iu = getlun()
     if ((act == 'r') .and.(.not.lbin)) then
       if (.not.lverb) then
-        call logmsg('Reading ascii file '//trim(f)//'...')
+        call logmsg('Reading ascii file '//trim(f)//'...', LOG_LEV_DEB)
       end if
       open(unit=iu, file=f, form='formatted', access='sequential', &
         action='read', status='old',share='denynone', position=pos)
     else if ((act == 'w') .and.(.not.lbin)) then
       if (.not.lverb) then
-        call logmsg('Writing ascii file '//trim(f)//'...')
+        call logmsg('Writing ascii file '//trim(f)//'...', LOG_LEV_DEB)
       end if
       open(unit=iu, file=f, form='formatted', access='sequential', &
         action='write', status='replace', position=pos)
     else if ((act == 'r') .and.(lbin)) then
       if (.not.lverb) then
-        call logmsg('Reading binary file '//trim(f)//'...')
+        call logmsg('Reading binary file '//trim(f)//'...', LOG_LEV_DEB)
       end if
       open(unit=iu, file=f, form='unformatted', access='stream', &
         action='readwrite', status='old',share='denynone', position=pos)
     else if ((act == 'w') .and.(lbin)) then
       if (.not.lverb) then        
-        call logmsg('Writing binary file '//trim(f)//'...')
+        call logmsg('Writing binary file '//trim(f)//'...', LOG_LEV_DEB)
       end if
       if (pos == 'append') then
         stat = 'old'
@@ -8609,12 +8617,27 @@ module utilsmod
     stop 1
   end subroutine errmsg
 
-  subroutine logmsg(msg)
+  subroutine logmsg(msg, ll_in)
 ! ******************************************************************************
     ! -- arguments
     character(len=*), intent(in) :: msg
+    integer(I4B), intent(in), optional :: ll_in
+    ! --- local
+    integer(I4B) :: ll
 ! ------------------------------------------------------------------------------
-    write(*,'(a)') trim(msg)
+    if (present(ll_in)) then
+      ll = ll_in
+    else
+      ll = LOG_LEV_RUN
+    end if
+    !
+    if (log_lev == LOG_LEV_RUN) then
+      if (ll /= LOG_LEV_DEB) then
+        write(*,'(a)') trim(msg)
+      end if
+    else
+      write(*,'(a)') trim(msg)
+    end if
     !
     return
   end subroutine logmsg
