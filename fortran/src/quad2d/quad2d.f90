@@ -7,7 +7,7 @@ module main_module
     get_unique, grid_load_imbalance, readidf, get_dir_files, strip_ext, get_slash, create_dir, &
     quicksort_r, I_I1, I_I2, I_I4, I_I8, I_R4, I_R8, I_C, tGrid, get_neighbors, replace_token, &
     get_elapsed_time, get_abs_file_name, add_slash
-  use vrt_module, only: tVrt, i_SourceFilename
+  use vrt_module, only: tVrt, tVrtArray, i_SourceFilename
   !
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
     i_dscl_nointp, i_dscl_intp, i_uscl_arith
@@ -18,7 +18,7 @@ module main_module
     i_lid, i_gid, i_i_graph, i_lay_mod, i_dat_mod, &
     i_tgt_cs_min, i_tgt_cs_min_lay_beg, i_tgt_cs_min_lay_end, i_tgt_cs_min_dz_top, &
     i_tgt_cs_max, i_head, i_budget, i_merge, n_prop_field, &
-    tMF6Disu, mf6_data_write, tMF6Exchange, valid_icir
+    tMF6Disu, mf6_data_write, tMF6Exchange, valid_icir, i_vrt, i_vrt_array
   !
   use multigrid_module, only: tMultiGrid, tMultiGridArray
   use mf6_wbd_mod, only: tMf6Wbd, MAX_NR_CSV
@@ -94,7 +94,7 @@ module main_module
   !
   real(R4B), dimension(:,:), allocatable :: r4w2d
   !
-  real(R4B) :: r4mv, tgt_imbal
+  real(R4B) :: r4mv, tgt_imbal, minkd
   !
   real(R8B) :: x0, x1, y0, y1
   real(R8B) :: refr8, xll, yll, yur, cs_gid, cs_max
@@ -208,7 +208,8 @@ subroutine quad_settings()
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
-    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv, cv_def='')
+    call ini%get_val(sect, 'minkd', r4v=minkd, r4v_def=5.00)
     !
     call ini%get_val(sect, 'lid_field',       cv=fields(i_lid),     cv_def='lid')
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
@@ -238,7 +239,7 @@ subroutine quad_settings()
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     call ini%get_val(sect, 'f_lay_mod_csv', cv=f_lay_mod_csv)
-    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv, cv_def='')
     !
     call ini%get_val(sect, 'lid_field',       cv=fields(i_lid),     cv_def='lid')
     call ini%get_val(sect, 'gid_field',       cv=fields(i_gid),     cv_def='gid')
@@ -302,7 +303,7 @@ subroutine quad_settings()
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     call ini%get_val(sect, 'f_lay_mod_csv',      cv=f_lay_mod_csv)
-    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv, cv_def='')
     call ini%get_val(sect, 'lay_mod_field',      cv=fields(i_lay_mod), cv_def='lay_mod')
     !
     call ini%get_val(sect, 'f_dat_mod_csv', cv=f_dat_mod_csv)
@@ -348,7 +349,7 @@ subroutine quad_settings()
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     call ini%get_val(sect, 'f_lay_mod_csv',      cv=f_lay_mod_csv)
-    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv, cv_def='')
     call ini%get_val(sect, 'lay_mod_field',      cv=fields(i_lay_mod), cv_def='lay_mod')
     !
     call ini%get_val(sect, 'f_lay_mod_output_csv', cv=f_lay_mod_output_csv)
@@ -397,7 +398,7 @@ subroutine quad_settings()
     !
     !call ini%get_val(sect, 'f_mod_def_inp', cv=f_mod_def_inp)
     call ini%get_val(sect, 'f_lay_mod_csv',      cv=f_lay_mod_csv)
-    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv)
+    call ini%get_val(sect, 'f_lay_coupling_csv', cv=f_lay_coupling_csv, cv_def='')
     call ini%get_val(sect, 'lay_mod_field',      cv=fields(i_lay_mod), cv_def='lay_mod')
     !
     call ini%get_val(sect, 'lid_field',        cv=fields(i_lid),        cv_def='lid')
@@ -4531,63 +4532,77 @@ subroutine quad_init_layer_models()
   character(len=1), dimension(2), parameter :: comment = [';','#']
   type(tLayerModel),  pointer :: lay_mod  => null()
   type(tLayerModels), pointer :: lay_mods => null()
+  type(tVrtArray), pointer :: vrta => null()  
   type(tCSV), pointer :: csv
   
   logical :: lfound, lread, lcompress, ldone_zp
-  character(len=MXSLEN) :: f, ft, s, s1, slc, ext
-  character(len=MXSLEN), dimension(:), allocatable :: keys, fz, sa
+  character(len=MXSLEN) :: laymod_f, laymod_ft, kh_f, kh_ft, s, s1, slc, ext
+  character(len=MXSLEN), dimension(:), allocatable :: keys, sa, ids
   integer(I4B), dimension(:), allocatable :: nlay
-  integer(I4B) :: ios, n_inp_mod, n_dat, ilm, ju, ir
+  integer(I4B) :: ios, n_inp_mod, n_dat, ilm, ju, ir, ierr
+  integer(I4B) :: laymod_f_type, kh_f_type
 ! ------------------------------------------------------------------------------
   !
   allocate(xq%lay_mods)
   lay_mods => xq%lay_mods
-  call lay_mods%init(f_lay_coupling_csv)
-  call lay_mods%get(lookup_keys=keys, nlay=nlay, n_inp_mod=n_inp_mod)
   !
   allocate(csv)
   call csv%read(f_lay_mod_csv)
-  
-  do i = 1, n_inp_mod
-    ir = csv%get_row(keys(i), 'id')
+  !
+  call lay_mods%init(f_lay_mod_csv)
+  call csv%get_column(key='id', ca=ids)
+  call csv%get_column(key='nlay', i4a=nlay)
+  !
+  if (len_trim(f_lay_coupling_csv) > 0) then
+    call logmsg('Reading coupling file for exchanges...')
+    call lay_mods%init_couple_file(f_lay_coupling_csv)
+    call lay_mods%get(lookup_keys=keys)
+    ierr = 0
+    if (size(ids) /= size(keys)) then
+      ierr = 1
+    end if
+    do i = 1, size(ids)
+      if (ids(i) /= keys(i)) then
+        ierr = 1
+      end if
+    end do
+    if (ierr == 1) then
+      call errmsg('quad_init_layer_models: incorrect order layer coupling file.')
+    end if
+  end if
+  !
+  do i = 1, lay_mods%n_inp_mod
+    ir = csv%get_row(ids(i), 'id')
     if (ir <= 0) then
       call errmsg('quad_init_layer_models: could not find id '//trim(keys(i))// &
         ' in file '//trim(f_lay_mod_csv)//'.')
     end if
-    call csv%get_val(ir=ir, ic=csv%get_col('file'), cv=f)
-    call csv%get_val(ir=ir, ic=csv%get_col('file_type'), cv=ft)
-    
-    if (allocated(fz)) deallocate(fz)
-    allocate(fz(nlay(i)+1))
-    
-    select case(ft)
-    case('vrta')
-      lcompress = .false.
-      call open_file(f, ju, 'r')
-      n = 0
-      do while(.true.)
-        call read_line(ju, f, ios, comment)
-        if (ios /= 0) exit
-        if (len_trim(f) > 0) then
-          n = n + 1
-          fz(n) = f
-        end if
-      end do
-      close(ju)
-      !
-      if (n /= (nlay(i)+1)) then
-        call errmsg('Error reading: '//trim(f)//'.')
-      end if
+    call csv%get_val(ir=ir, ic=csv%get_col('laymod_file'), cv=laymod_f)
+    call csv%get_val(ir=ir, ic=csv%get_col('laymod_file_type'), cv=laymod_ft)
+    call csv%get_val(ir=ir, ic=csv%get_col('kh_file'), cv=kh_f)
+    call csv%get_val(ir=ir, ic=csv%get_col('kh_file_type'), cv=kh_ft)
+    !
+    laymod_f_type = 0
+    select case(laymod_ft)
     case('vrt')
-      lcompress = .true.
-      fz(1) = f
+      laymod_f_type = i_vrt
+    case('vrta')
+      laymod_f_type = i_vrt_array
     case default
-      call errmsg('Unrecognized filetype: '//trim(f))
+      call errmsg('Unrecognized filetype: '//trim(laymod_f))
     end select
     !
     ! set the data 
     lay_mod => lay_mods%lay_mods(i)
-    call lay_mod%init(keys(i), nlay(i), fz, lcompress)
+    !
+    if (len_trim(kh_f) > 0) then
+      if (kh_ft /= 'vrta') then
+        call errmsg('File '//trim(kh_f)//' should be of type vrta.')
+      end if
+      call lay_mod%init(i, ids(i), nlay(i), laymod_f, laymod_f_type, kh_f)
+    else
+      call lay_mod%init(i, ids(i), nlay(i), laymod_f, laymod_f_type)
+    end if
   end do
   !
   do i = 1, xq%n
@@ -4597,7 +4612,6 @@ subroutine quad_init_layer_models()
     end if
   end do
   !
-  if (allocated(fz)) deallocate(fz)
   call csv%clean(); deallocate(csv); csv => null()
   !
   return
@@ -4774,9 +4788,9 @@ subroutine quad_layer_models_interface()
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
   if (lwrite_props) then
-    call xq%add_lm_intf(f_out_csv)
+    call xq%add_lm_intf(f_lay_coupling_csv, minkd, f_out_csv)
   else
-    call xq%add_lm_intf()
+    call xq%add_lm_intf(f_lay_coupling_csv, minkd)
   end if
   !
   return

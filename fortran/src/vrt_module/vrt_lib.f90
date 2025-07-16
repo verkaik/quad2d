@@ -167,7 +167,6 @@ module vrt_module
       id = ''
     end if
     !
-    
     f = this%f
     !
     if (len_trim(f) == 0) then

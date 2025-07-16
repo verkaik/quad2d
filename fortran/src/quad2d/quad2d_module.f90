@@ -12,7 +12,7 @@ module quad2dModule
     cast_number_from_string, get_ext, change_case, fileexist, get_dir, &
     quicksort_r, get_abs_file_name
   use hdrModule, only: tHdr, tHdrHdr, writeflt, &
-    i_uscl_arith, i_dscl_nointp, &
+    i_uscl_arith, i_uscl_geom, i_dscl_nointp, &
     uscl_names, dscl_names, n_uscl, n_dscl, i_uscl_nodata, i_dscl_nodata
   use kdtree2_module
   use vrt_module, only: tVrt, tVrtArray
@@ -110,6 +110,7 @@ module quad2dModule
     !
     integer(I4B), dimension(:,:), allocatable :: nod
     real(R4B), dimension(:,:), allocatable :: zp
+    real(R4B), dimension(:,:), allocatable :: khp
   contains
     procedure :: init  => tVertIntf_init
     procedure :: clean => tVertIntf_clean
@@ -213,12 +214,13 @@ module quad2dModule
   end type tLookupTable
   !
   type, public :: tLayerModel
+    integer(I4B) :: idx
     logical :: compressed
     character(MXSLEN) :: name
     integer(I4B) :: nlay
-    type(tVrt),  pointer                :: top   => null()
-    type(tVrt),  dimension(:),  pointer :: bots  => null()
-    type(tVrt), pointer :: comp_dat_ptr => null()
+    type(tVrtArray),  pointer :: laymod_vrta => null()
+    type(tVrtArray),  pointer :: kh_vrta     => null()
+    type(tVrt),       pointer :: laymod_vrt  => null() !compressed only
   contains
     procedure :: init           => tLayerModel_init
     procedure :: clean          => tLayerModel_clean
@@ -232,10 +234,11 @@ module quad2dModule
     type(tLookupTable), pointer :: lookup => null()
     type(tLayerModel), dimension(:), pointer :: lay_mods => null()
   contains
-    procedure :: init       => tLayerModels_init
-    procedure :: clean      => tLayerModels_clean
-    procedure :: get        => tLayerModels_get
-    procedure :: get_lm_ptr => tLayerModels_get_lm_ptr
+    procedure :: init             => tLayerModels_init
+    procedure :: init_couple_file => tLayerModels_init_couple_file
+    procedure :: clean            => tLayerModels_clean
+    procedure :: get              => tLayerModels_get
+    procedure :: get_lm_ptr       => tLayerModels_get_lm_ptr
   end type tLayerModels
   !
   integer(I4B), parameter :: i_not_assigned       = 0
@@ -494,6 +497,7 @@ module quad2dModule
   public :: get_number_of_levels, get_refinement_level
   public :: mf6_data_write
   public :: valid_icir
+  public :: i_vrt, i_vrt_array
   
   save
   
@@ -2404,9 +2408,40 @@ module quad2dModule
 ! ------------------------------------------------------------------------------
     !
     call csv%read(f_csv)
-    this%n_inp_mod = csv%get_nc()
+    this%n_inp_mod = csv%get_nr()
     !
     if (this%n_inp_mod <= 0) then
+      call errmsg('tLayerModels_init: invalid number of layer models.')
+    end if
+    !
+    allocate(this%lay_mods(this%n_inp_mod))
+    !
+    call csv%clean()
+    !
+    return
+  end subroutine tLayerModels_init
+ 
+  subroutine tLayerModels_init_couple_file(this, f_csv)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tLayerModels) :: this
+    character(len=*), intent(in) :: f_csv
+    !
+    ! -- local
+    type(tCSV) :: csv
+    type(tLookupTable), pointer :: lookup => null()
+    integer(I4B) :: i
+! ------------------------------------------------------------------------------
+    !
+    if (len_trim(f_csv) == 0) then
+      return
+    end if
+    !
+    call csv%read(f_csv)
+    if (this%n_inp_mod /= csv%get_nc()) then
       call errmsg('tLayerModels_init: invalid number of layer models.')
     end if
     !
@@ -2419,11 +2454,11 @@ module quad2dModule
       lookup%keys(i) = csv%get_key(i)
     end do
     !
-    allocate(this%lay_mods(this%n_inp_mod))
+    call csv%clean()
     !
     return
-  end subroutine tLayerModels_init
- 
+  end subroutine tLayerModels_init_couple_file
+
    subroutine tLayerModels_clean(this)
 ! ******************************************************************************
 !
@@ -2536,48 +2571,56 @@ module quad2dModule
 ! ==============================================================================
 ! ==============================================================================
   
-   subroutine tLayerModel_init(this, name, nlay, f_vrt, compressed)
+   subroutine tLayerModel_init(this, idx, name, nlay, f, f_type, f_kh)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tLayerModel) :: this
+    integer(I4B), intent(in) :: idx
     character(len=*), intent(in) :: name
     integer(I4B), intent(in) :: nlay
-    character(len=*), dimension(:), intent(in) :: f_vrt
-    logical, intent(in), optional :: compressed
+    character(len=*), intent(in) :: f
+    integer(I4B), intent(in) :: f_type
+    character(len=*), intent(in), optional :: f_kh
     !
     ! -- local
-    type(tVrt), pointer :: vrt => null()
+    type(tVrt),      pointer :: vrt => null()
+    type(tVrtArray), pointer :: vrta => null()
     integer(I4B) :: il
 ! ------------------------------------------------------------------------------
+    ! nullify the pointers
+    this%laymod_vrt  => null()
+    this%laymod_vrta => null()
+    this%kh_vrta     => null()
     !
-    this%compressed = .false.
-    if (present(compressed)) then
-      this%compressed = compressed
+    this%idx = idx
+    if (f_type == i_vrt) then
+      this%compressed = .true.
+    else
+      this%compressed = .false.
     end if
     !
     this%name = name
     this%nlay = nlay
     !
-    if (size(f_vrt) /= (nlay + 1)) then
-      call errmsg('tLayerModel_init: invalid data.')
+    if (this%compressed) then
+      allocate(this%laymod_vrt)
+      vrt => this%laymod_vrt
+      call vrt%init(f)
+    else
+      allocate(this%laymod_vrta)
+      vrta => this%laymod_vrta
+      vrta%f = f
+      call vrta%init(f)
     end if
     !
-    if (this%compressed) then
-      allocate(this%comp_dat_ptr)
-      vrt => this%comp_dat_ptr
-      call vrt%init(f_vrt(1))
-    else
-      allocate(this%top)
-      vrt => this%top
-      allocate(this%bots(nlay))
-      call vrt%init(f_vrt(1))
-      do il = 1, nlay
-        vrt => this%bots(il)
-        call vrt%init(f_vrt(il+1))
-      end do
+    if (present(f_kh)) then
+      allocate(this%kh_vrta)
+      vrta => this%kh_vrta
+      vrta%f = f_kh
+      call vrta%init(f)
     end if
     !
     return
@@ -2592,33 +2635,30 @@ module quad2dModule
     class(tLayerModel) :: this
     !
     ! -- local
-    type(tVrt), pointer :: vrt => null()
     integer(I4B) :: il
 ! ------------------------------------------------------------------------------
     !
-    if (associated(this%top)) then
-      call this%top%clean()
-      deallocate(this%top)
+    if (associated(this%laymod_vrt)) then
+      call this%laymod_vrt%clean()
+      deallocate(this%laymod_vrt)
     end if
     !
-    if (associated(this%bots)) then
-      do il = 1, this%nlay
-        vrt => this%bots(il)
-        call vrt%clean()
-      end do
-      deallocate(this%bots)
+    if (associated(this%laymod_vrta)) then
+      call this%laymod_vrta%clean()
+      deallocate(this%laymod_vrta)
     end if
     !
-    if (associated(this%comp_dat_ptr)) then
-      call this%comp_dat_ptr%clean()
-      deallocate(this%comp_dat_ptr)
+    if (associated(this%kh_vrta)) then
+      call this%kh_vrta%clean()
+      deallocate(this%kh_vrta)
     end if
     !
     this%compressed = .false.
     this%name = ''
     this%nlay = 0
-    this%top => null()
-    this%bots => null()
+    this%laymod_vrt  => null()
+    this%laymod_vrta => null()
+    this%kh_vrta     => null()
     !
     return
   end subroutine tLayerModel_clean
@@ -2633,25 +2673,31 @@ module quad2dModule
     !
     ! -- local
     type(tVrt), pointer :: vrt => null()
+    type(tVrtArray), pointer :: vrta => null()
+    logical :: lconst
     integer(I4B) :: il, it
+    real(R4B) :: r4const
 ! ------------------------------------------------------------------------------
     !
+    vrta => this%laymod_vrta
+    if (.not.associated(vrta)) then
+      return
+    end if
     do il = 1, this%nlay + 1
-      if (il == 1) then
-        vrt => this%top
-      else
-        vrt => this%bots(il-1)
+      call vrta%check_constant(il, lconst, r4const)
+      if (.not.lconst) then
+        vrt => vrta%get_vrt(il)
+        do it = 1, vrt%ntiles
+          call vrt%read_full_tile(itile=it, clean_hdrg=.false.)
+        end do
+        vrt%full_data_read = .true.
       end if
-      do it = 1, vrt%ntiles
-        call vrt%read_full_tile(itile=it, clean_hdrg=.false.)
-      end do
-      vrt%full_data_read = .true.
     end do
     !
     return
   end subroutine tLayerModel_read_full_grid
    
-  subroutine tLayerModel_read_xy(this, x, y, cs, zp, mv, lay_act, nl_act)
+  subroutine tLayerModel_read_xy(this, x, y, cs, zp, khp, mv, lay_act, nl_act)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -2664,18 +2710,21 @@ module quad2dModule
     real(R8B), dimension(:), intent(in) :: cs
     !
     real(R4B), dimension(:,:), allocatable, intent(inout) :: zp
+    real(R4B), dimension(:,:), allocatable, intent(inout) :: khp
     real(R4B), intent(out) :: mv
     integer(I4B), dimension(:), allocatable, intent(inout) :: lay_act
     integer(I4B), intent(out) :: nl_act
     !
     ! -- local
     type(tVrt), pointer :: vrt => null()
+    type(tVrtArray), pointer :: laymod_vrta => null()
+    type(tVrtArray), pointer :: kh_vrta     => null()
     character(len=MXSLEN) :: f
     character(len=MXSLEN), dimension(:), allocatable :: f_bin
-    logical :: lop
-    real(R4B), dimension(:,:), allocatable :: zp_all
-    real(R4B), dimension(:), allocatable :: r4wk, z_read
-    real(R4B) :: mvr4_read, top, bot, top_next, thk
+    logical :: lop, lconst, lkhp
+    real(R4B), dimension(:,:), allocatable :: zp_all, khp_all
+    real(R4B), dimension(:), allocatable :: r4wk, z_read, kh_read
+    real(R4B) :: mvr4_read, top, bot, top_next, thk, r4const
     real(R8B), dimension(:), allocatable :: r8wk
     real(R8B) :: mvr8_read
     integer(I4B), dimension(:), allocatable :: iu, lay_read, xtile, flag
@@ -2692,9 +2741,10 @@ module quad2dModule
     end if
     !
     if (allocated(zp)) deallocate(zp)
+    if (allocated(khp)) deallocate(khp)
     !
     if (this%compressed) then
-      vrt => this%comp_dat_ptr
+      vrt => this%laymod_vrt
       !
       call vrt%read_xy(x=x, y=y, cs=cs, r8a=r8wk, mvr8=mvr8_read, &
         i_uscl=i_uscl_nodata, i_dscl=i_dscl_nointp, xtile=xtile, f_bin=f_bin)
@@ -2710,7 +2760,7 @@ module quad2dModule
       ! first, determine the number of layers
       if (allocated(lay_act)) deallocate(lay_act)
       allocate(lay_act(this%nlay)); lay_act = 0
-      allocate(lay_read(this%nlay), z_read(this%nlay))
+      allocate(lay_read(this%nlay), z_read(this%nlay), kh_read(this%nlay))
       !
       do ip = 1, np
         p = int(r8wk(ip),I8B)
@@ -2746,7 +2796,8 @@ module quad2dModule
       end if
       !
       mv = -99999.
-      allocate(zp(np,nl_act+1)); zp = mv
+      allocate(zp(np,nl_act+1));  zp = mv
+      allocate(khp(np,nl_act));   khp = mv
       !
       do ip = 1, np
         p = int(r8wk(ip),I8B)
@@ -2755,12 +2806,14 @@ module quad2dModule
           read(iu(it), pos=p) nl; p = p + I4B
           lay_read = 0; z_read = mv
           read(iu(it), pos=p) lay_read(1:nl); p = p + nl*I4B
-          read(iu(it), pos=p) z_read(1:nl+1)
+          read(iu(it), pos=p) z_read(1:nl+1); p = p + (nl+1)*R4B
+          read(iu(it), pos=p) kh_read(1:nl)
           do i = 1, nl
             il = lay_read(i); jl = lay_act(il)
             top = z_read(i); bot = z_read(i+1)
             zp(ip,jl)   = top
             zp(ip,jl+1) = bot
+            khp(ip,jl)  = kh_read(i)
           end do
         end if
       end do
@@ -2804,30 +2857,69 @@ module quad2dModule
       end if
       if (allocated(lay_read)) deallocate(lay_read)
       if (allocated(z_read)) deallocate(z_read)
+      if (allocated(kh_read)) deallocate(kh_read)
     else
+      if (associated(this%kh_vrta)) then
+        lkhp = .true.
+        kh_vrta => this%kh_vrta
+        allocate(khp_all(np,this%nlay))
+      else
+        lkhp = .false.
+      end if
       allocate(zp_all(np,this%nlay+1))
       if (allocated(lay_act)) deallocate(lay_act)
       allocate(lay_act(this%nlay)); lay_act = 0
+      laymod_vrta => this%laymod_vrta
       !
       do il = 1, this%nlay + 1
-        if (il == 1) then
-          vrt => this%top
+        !
+        ! laymod
+        if (allocated(r4wk)) deallocate(r4wk)
+        allocate(r4wk(np))
+        call laymod_vrta%check_constant(il, lconst, r4const)
+        if (lconst) then
+          r4wk = r4const
         else
-          vrt => this%bots(il-1)
+          vrt => laymod_vrta%get_vrt(il)
+          call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
+            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp)
         end if
-        !
-        call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
-          i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp)
-        !
         zp_all(:,il) = r4wk
         !
+        ! set the missing value
         if (il == 1) then
           mv = mvr4_read
-        else
+        end if
+        !
+        ! kh
+        if (lkhp .and. il <= this%nlay) then
+          if (allocated(r4wk)) deallocate(r4wk)
+          allocate(r4wk(np))
+          call kh_vrta%check_constant(il, lconst, r4const)
+          if (lconst) then
+            r4wk = r4const
+          else
+            vrt => kh_vrta%get_vrt(il)
+            call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
+              i_uscl=i_uscl_geom, i_dscl=i_dscl_nointp)
+          end if
+          khp_all(:,il) = r4wk
+        end if
+        !
+        if (il > 1) then
           ! replace missing value
           do i = 1, np
             if (zp_all(i,il) == mvr4_read) then
               zp_all(i,il) = mv
+            end if
+          end do
+        end if
+        !
+        ! replace missing value
+        if (lkhp .and. il <= this%nlay) then
+          do i = 1, np
+            if (khp_all(i,il) == mvr4_read) then
+              khp_all(i,il) = mv
             end if
           end do
         end if
@@ -2844,7 +2936,7 @@ module quad2dModule
             end if
           end do
         end if
-      end do
+      end do ! il = 1, this%nlay + 1
       !
       nl_act = 0
       do il = 1, this%nlay
@@ -2859,15 +2951,23 @@ module quad2dModule
       !
       ! fill for active layers only
       allocate(zp(np,nl_act+1)); zp = mv
+      if (lkhp) then
+        allocate(khp(np,nl_act)); khp = mv
+      end if
+      !
       do il = 1, this%nlay
         jl = lay_act(il)
         if (jl > 0) then
           zp(:,jl)   = zp_all(:,il)
           zp(:,jl+1) = zp_all(:,il+1)
+          if (lkhp) then
+            khp(:,jl)   = khp_all(:,il)
+          end if
         end if
       end do
       !
       deallocate(zp_all)
+      if (allocated(khp_all)) deallocate(khp_all)
     end if
     !
     return
@@ -2888,10 +2988,11 @@ module quad2dModule
     !
     ! -- local
     type(tVrt), pointer :: vrt => null()
+    type(tVrtArray), pointer :: vrta => null()
     character(len=MXSLEN) :: f
     character(len=MXSLEN), dimension(:), allocatable :: f_bin
-    logical :: lop, lfound
-    real(R4B) :: mvr4_read, thk, top, bot, top_next
+    logical :: lop, lfound, lconst
+    real(R4B) :: mvr4_read, thk, top, bot, top_next, r4const
     real(R4B), dimension(:), allocatable :: z_read
     real(R4B), dimension(:,:), allocatable :: r4wk
     real(R4B), dimension(:,:,:), allocatable :: zp_read
@@ -2914,7 +3015,7 @@ module quad2dModule
     if (allocated(lay_act)) deallocate(lay_act)
     !
     if (this%compressed) then
-      vrt => this%comp_dat_ptr
+      vrt => this%laymod_vrt
       call vrt%read_extent(xr8=r8wk, mvr8=mvr8_read, bbx=bbx, &
         i_uscl=i_uscl_nodata, i_dscl=i_dscl_nointp, xtile=xtile, f_bin=f_bin)
       ntile = size(f_bin); allocate(iu(ntile))
@@ -3032,20 +3133,20 @@ module quad2dModule
       if (allocated(z_read)) deallocate(z_read)
     else
       allocate(zp_read(nc,nr,this%nlay+1))
+      vrta => this%laymod_vrta
       !
-      ! read for all layers first
       do il = 1, this%nlay + 1
-        if (il == 1) then
-          vrt => this%top
-        else
-          vrt => this%bots(il-1)
-        end if
-        !
         if (allocated(r4wk)) deallocate(r4wk)
-        !
-        call vrt%read_extent(xr4=r4wk, mvr4=mvr4_read, bbx=bbx, &
-          i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp)
-        call vrt%clean_x()
+        allocate(r4wk(nc,nr))
+        call vrta%check_constant(il, lconst, r4const)
+        if (lconst) then
+          r4wk = r4const
+        else
+          vrt => vrta%get_vrt(il)
+          call vrt%read_extent(xr4=r4wk, mvr4=mvr4_read, bbx=bbx, &
+            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp)
+          call vrt%clean_x()
+        end if
         !
         mc = size(r4wk,1); mr = size(r4wk,2)
         if ((mc /= nc).or.(mr /= nr)) then
@@ -5476,13 +5577,15 @@ module quad2dModule
     return
   end subroutine tQuads_write_props
   
-subroutine tQuads_add_lm_intf(this, f_out_csv)
+subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
 ! ------------------------------------------------------------------------------
     ! -- dummy
     class(tQuads) :: this 
+    character(len=*), intent(in) :: f_lay_coupling_csv
+    real(R4B), intent(in) :: minkd
     character(len=*), optional :: f_out_csv
     ! -- local
     logical :: read_all_lm = .false.
@@ -5503,15 +5606,15 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     character(len=MXSLEN) :: f_flt, clm
     logical :: found, fp, lwrite_props
     real(R8B), dimension(:), allocatable :: x, y, cs
-    real(R4B), dimension(:,:), allocatable :: zp
+    real(R4B), dimension(:,:), allocatable :: zp, khp
     real(R4B) :: mv, top, bot, thk, perc
     integer(I4B), dimension(:,:), allocatable :: i4wk, nod
     integer(I4B), dimension(:), allocatable :: nl_act, lay_act, nbr_lid, nbr_nexg
     integer(I4B) :: lid, inbr, jnbr, lid_nbr, lm, icell, jcell, gicell
     integer(I4B) :: q_nact, q_nact_delta
     integer(I4B) :: i, n, ic, ir, il, idummy, nl, nl_intf, nr, nc, ncell, iact
+    integer(I4B) :: ihc_hor
 ! ------------------------------------------------------------------------------
-    !
     lwrite_props = .false.
     if (present(f_out_csv)) then
       lwrite_props = .true.
@@ -5633,7 +5736,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         call q%get_prop_csv(ikey=i_lay_mod, cv=clm)
         lay_mod => q%lay_mods%get_lm_ptr(clm)
         !lay_mod => q%lay_mods%lay_mods(lm)
-        call lay_mod%read_xy(x, y, cs, zp, mv, nl_act, nl)
+        call lay_mod%read_xy(x, y, cs, zp, khp, mv, nl_act, nl)
         if (allocated(lay_act)) deallocate(lay_act)
         allocate(lay_act(nl)) 
         do il = 1, lay_mod%nlay
@@ -5670,7 +5773,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             nintf%vintf_active = 1
             allocate(nintf%vintf_from)
             vintf => nintf%vintf_from
-            call vintf%init(lm=lm, nlay_act=nl, n_cells=nintf%n_cells)
+            call vintf%init(lm=lay_mod%idx, nlay_act=nl, n_cells=nintf%n_cells)
             !
             nl_intf = 0
             do il = 1, lay_mod%nlay
@@ -5700,6 +5803,12 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
                 vintf%zp(icell,i) = zp(jcell,i)
               end do
               vintf%zp(icell,nl+1) = zp(jcell,nl+1)
+              !
+              if (allocated(khp)) then
+                do i = 1, nl
+                  vintf%khp(icell,i) = khp(jcell,i)
+                end do
+              end if
             end do
             !
           end if
@@ -5752,6 +5861,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             ! copy the data
             allocate(nintf%vintf_to, source=nintf_nbr%vintf_from)
             !
+            call q_nbr%get_prop_csv(ikey=i_lay_mod, cv=clm)
+            lay_mod => q_nbr%lay_mods%get_lm_ptr(clm)
+            nintf%vintf_to%lm = lay_mod%idx
           end if
         end do
       end if
@@ -5780,8 +5892,17 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
             if ((q%lid < nintf%nbr_lid).and.(nintf%vintf_active == 1)) then
               nintf%xch_active = 1
               allocate(nintf%xch); xch => nintf%xch
-              call xch%init(ihc=1, cl1=bbx%cs*R8HALF, cl2=bbx%cs*R8HALF, hwva=bbx%cs)
-              call xch%set(nintf%vintf_from, nintf%vintf_to, lookup)
+              if (nintf%vintf_from%lm == nintf%vintf_to%lm) then ! same layer models
+                ihc_hor = 1
+              else
+                ihc_hor = 2
+              end if
+              call xch%init(ihc=ihc_hor, cl1=bbx%cs*R8HALF, cl2=bbx%cs*R8HALF, hwva=bbx%cs)
+              if (len_trim(f_lay_coupling_csv) /= 0) then
+                call xch%set(nintf%vintf_from, nintf%vintf_to, lookup, couple_method=1)
+              else
+                call xch%set(nintf%vintf_from, nintf%vintf_to, lookup, couple_method=2, minkd=minkd)
+              end if
               !
               ! deactivate in case no exchanges are found
               if (xch%nexg == 0) then
@@ -7394,7 +7515,8 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     return
   end subroutine tMF6Exchange_clean
   
-  subroutine tMF6Exchange_set(this, vintf_from, vintf_to, lookup)
+  subroutine tMF6Exchange_set(this, vintf_from, vintf_to, lookup, &
+    couple_method, minkd)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -7404,16 +7526,34 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     type(tVertIntf), pointer, intent(in) :: vintf_from
     type(tVertIntf), pointer, intent(in) :: vintf_to
     type(tLookupTable), pointer, intent(in) :: lookup
+    integer(I4B), intent(in), optional :: couple_method
+    real(R4B), intent(in), optional :: minkd
     ! -- local
     logical, parameter :: check_duplicates = .false.
+    logical :: ladd_fr, ladd_to
     integer(I1B), dimension(:,:), allocatable :: i1wk
-    integer(I4B) :: max_lay_act, ic, ir, il, jl, il_fr, il_to, n_cells
-    integer(I4B) :: ip, i, j, iact, nconn, ios
-    integer(I4B) :: n_fr, n_to, nr, nc, nl_fr, nl_to, stat
     integer(I4B), dimension(:), allocatable :: lay_fr, lay_to, lay_ptr
     integer(I4B), dimension(:,:), allocatable :: lay_connect, nod_fr, nod_to
     integer(I4B), dimension(:,:,:), allocatable :: i4wk
+    integer(I4B) :: max_lay_act, ic, ir, il, jl, il_fr, il_to, n_cells
+    integer(I4B) :: ip, jp, i, j, iact, nconn, ios, nexg_diff_lay
+    integer(I4B) :: n_fr, n_to, nr, nc, nl_fr, nl_to, stat, method
+    integer(I4B) :: minlay, maxlay, gil_fr, gil_to
+    real(R4B) :: f, t1, b1, t2, b2, kd_fr, kd_to, kh_fr, kh_to, d_fr, d_to, d
+    real(R4B) :: kd_harmonic_mean
 ! ------------------------------------------------------------------------------
+    !
+     if (present(couple_method)) then
+      method = couple_method
+    else
+      method = 1
+    end if
+    !
+    if (method == 2) then
+      if ((.not.present(minkd)).or.(.not.present(minkd))) then
+        call errmsg('tMF6Exchange_set: program error.')
+      end if
+    end if
     !
     ! check
     if (vintf_from%n_cells /= vintf_from%n_cells) then
@@ -7465,108 +7605,195 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
         end if
       end do
     else
-      if (allocated(lay_fr)) deallocate(lay_fr) !from
-      if (allocated(lay_to)) deallocate(lay_to) !to
-      nconn = size(lookup%table,2)
-      allocate(lay_fr(nconn), lay_to(nconn))
-      !
-      lay_fr = lookup%table(vintf_from%lm,:) !from
-      lay_to = lookup%table(vintf_to%lm,:) !to
-      nl_fr = maxval(lay_fr); nl_to = maxval(lay_to)
-      !
-      ! blank the inactive layers
-      allocate(lay_ptr(nconn)) ! allocate a little larger
-      !
-      lay_ptr = 0
-      do jl = 1, vintf_from%nlay_act
-        il_fr = vintf_from%lay_act(jl)
-        lay_ptr(il_fr) = 1
-      end do
-      do i = 1, nconn
-        il_fr = lay_fr(i)
-        if (lay_ptr(il_fr) == 0) then
-          lay_fr(i) = 0
-        end if
-      end do
-      !
-      lay_ptr = 0
-      do jl = 1, vintf_to%nlay_act
-        il_to = vintf_to%lay_act(jl)
-        lay_ptr(il_to) = 1
-      end do
-      do i = 1, nconn
-        il_to = lay_to(i)
-        if (lay_ptr(il_to) == 0) then
-          lay_to(i) = 0
-        end if
-      end do
-      !
-      if (allocated(lay_connect)) deallocate(lay_connect)
-      allocate(lay_connect(nl_to,nl_fr)); lay_connect = 0
-      !
-      do i = 1, nconn
-        ic = lay_to(i); ir = lay_fr(i)
-        if ((ic > 0).and.(ir > 0)) then
-          lay_connect(ic,ir) = 1
-        end if
-      end do
-      !
-      allocate(nod_fr(n_cells, nl_fr)); nod_fr = 0
-      allocate(nod_to(n_cells, nl_to)); nod_to = 0
-      !
-      ! fill the from cells
-      do jl = 1, vintf_from%nlay_act
-        il_fr = vintf_from%lay_act(jl)
-        do ip = 1, n_cells
-          nod_fr(ip,il_fr) = vintf_from%nod(ip,jl)
+      select case(method)
+      case(1)
+        if (allocated(lay_fr)) deallocate(lay_fr) !from
+        if (allocated(lay_to)) deallocate(lay_to) !to
+        nconn = size(lookup%table,2)
+        allocate(lay_fr(nconn), lay_to(nconn))
+        !
+        lay_fr = lookup%table(vintf_from%lm,:) !from
+        lay_to = lookup%table(vintf_to%lm,:) !to
+        nl_fr = maxval(lay_fr); nl_to = maxval(lay_to)
+        !
+        ! blank the inactive layers
+        allocate(lay_ptr(nconn)) ! allocate a little larger
+        !
+        lay_ptr = 0
+        do jl = 1, vintf_from%nlay_act
+          il_fr = vintf_from%lay_act(jl)
+          lay_ptr(il_fr) = 1
         end do
-      end do
-      !
-      ! fill the to cells
-      do jl = 1, vintf_to%nlay_act
-        il_to = vintf_to%lay_act(jl)
-        do ip = 1, n_cells
-          nod_to(ip,il_to) = vintf_to%nod(ip,jl)
+        do i = 1, nconn
+          il_fr = lay_fr(i)
+          if (lay_ptr(il_fr) == 0) then
+            lay_fr(i) = 0
+          end if
         end do
-      end do
-      !
-      do iact = 1, 2
-        this%nexg = 0
-        do il_fr = 1, nl_fr
+        !
+        lay_ptr = 0
+        do jl = 1, vintf_to%nlay_act
+          il_to = vintf_to%lay_act(jl)
+          lay_ptr(il_to) = 1
+        end do
+        do i = 1, nconn
+          il_to = lay_to(i)
+          if (lay_ptr(il_to) == 0) then
+            lay_to(i) = 0
+          end if
+        end do
+        !
+        if (allocated(lay_connect)) deallocate(lay_connect)
+        allocate(lay_connect(nl_to,nl_fr)); lay_connect = 0
+        !
+        do i = 1, nconn
+          ic = lay_to(i); ir = lay_fr(i)
+          if ((ic > 0).and.(ir > 0)) then
+            lay_connect(ic,ir) = 1
+          end if
+        end do
+        !
+        allocate(nod_fr(n_cells, nl_fr)); nod_fr = 0
+        allocate(nod_to(n_cells, nl_to)); nod_to = 0
+        !
+        ! fill the from cells
+        do jl = 1, vintf_from%nlay_act
+          il_fr = vintf_from%lay_act(jl)
           do ip = 1, n_cells
-            do il_to = 1, nl_to
-              !
-              ! layers can be connected
-              if (lay_connect(il_to,il_fr) == 1) then
-                ! get the node numbers
-                n_fr = nod_fr(ip,il_fr); n_to = nod_to(ip,il_to)
-                ! positive number numbers mean connected
-                if ((n_fr > 0).and.(n_to > 0)) then
-                  this%nexg = this%nexg + 1
-                  if (iact == 2) then
-                    this%cellidm1(this%nexg) = n_fr
-                    this%cellidm2(this%nexg) = n_to
-                  end if
-                end if
-              end if
-            end do
+            nod_fr(ip,il_fr) = vintf_from%nod(ip,jl)
           end do
         end do
-        if (iact == 1) then
-          if (this%nexg > 0) then
-            allocate(this%cellidm1(this%nexg))
-            allocate(this%cellidm2(this%nexg))
+        !
+        ! fill the to cells
+        do jl = 1, vintf_to%nlay_act
+          il_to = vintf_to%lay_act(jl)
+          do ip = 1, n_cells
+            nod_to(ip,il_to) = vintf_to%nod(ip,jl)
+          end do
+        end do
+        !
+        do iact = 1, 2
+          this%nexg = 0
+          do il_fr = 1, nl_fr
+            do ip = 1, n_cells
+              do il_to = 1, nl_to
+                !
+                ! layers can be connected
+                if (lay_connect(il_to,il_fr) == 1) then
+                  ! get the node numbers
+                  n_fr = nod_fr(ip,il_fr); n_to = nod_to(ip,il_to)
+                  ! positive number numbers mean connected
+                  if ((n_fr > 0).and.(n_to > 0)) then
+                    this%nexg = this%nexg + 1
+                    if (iact == 2) then
+                      this%cellidm1(this%nexg) = n_fr
+                      this%cellidm2(this%nexg) = n_to
+                    end if
+                  end if
+                end if
+              end do
+            end do
+          end do
+          if (iact == 1) then
+            if (this%nexg > 0) then
+              allocate(this%cellidm1(this%nexg))
+              allocate(this%cellidm2(this%nexg))
+            end if
           end if
-        end if
-      end do
-      !
-      ! clean up
-      if (allocated(lay_fr)) deallocate(lay_fr)
-      if (allocated(lay_to)) deallocate(lay_to)
-      if (allocated(lay_ptr)) deallocate(lay_ptr)
-      if (allocated(nod_fr)) deallocate(nod_fr)
-      if (allocated(nod_to)) deallocate(nod_to)
-      if (allocated(lay_connect)) deallocate(lay_connect)
+        end do
+        !
+        ! clean up
+        if (allocated(lay_fr)) deallocate(lay_fr)
+        if (allocated(lay_to)) deallocate(lay_to)
+        if (allocated(lay_ptr)) deallocate(lay_ptr)
+        if (allocated(nod_fr)) deallocate(nod_fr)
+        if (allocated(nod_to)) deallocate(nod_to)
+        if (allocated(lay_connect)) deallocate(lay_connect)
+      case(2)
+        nl_fr = vintf_from%nlay_act; nl_to = vintf_to%nlay_act
+        !
+        do iact = 1, 2
+          this%nexg = 0
+          nexg_diff_lay = 0
+          do ip = 1, n_cells
+            do il_fr = 1, nl_fr
+              ladd_fr = .true.
+              t1 = vintf_from%zp(ip, il_fr)
+              b1 = vintf_from%zp(ip, il_fr+1)
+              !
+              if ((t1 == vintf_from%mv).or.(b1 == vintf_from%mv)) then
+                ladd_fr = .false.
+                cycle
+              end if
+              !
+              ! check for kD
+              d_fr = t1 - b1
+              kh_fr = vintf_from%khp(ip, il_fr)
+              if (kh_fr == vintf_from%mv) then
+                kh_fr = R4ZERO
+              end if
+              !
+              do il_to = 1, nl_to
+                ladd_to = .true.
+                t2 = vintf_to%zp(ip, il_to)
+                b2 = vintf_to%zp(ip, il_to+1)
+                if ((t2 == vintf_to%mv).or.(b2 == vintf_to%mv)) then
+                  ladd_to = .false.
+                  cycle
+                end if
+                !
+                ! check for kD
+                d_to = t2 - b2
+                kh_to = vintf_to%khp(ip, il_to)
+                if (kh_to == vintf_to%mv) then
+                  kh_to = R4ZERO
+                end if
+                !
+                f = calc_frac(t1, b1, 0, t2, b2)
+                d = f*d_fr
+                !
+                kd_fr = kh_fr*d
+                kd_to = kh_to*d
+                !
+                ! see MODFLOW 6 function "condmean"
+                if (kd_fr * kd_to > R4ZERO) then
+                  kd_harmonic_mean = this%hwva * kd_fr * kd_to / (kd_fr * this%cl2 + kd_to * this%cl1)
+                else
+                  kd_harmonic_mean = R4ZERO
+                end if
+                !
+                if (kd_harmonic_mean > minkd) then
+                  ! get the node numbers
+                  n_fr = vintf_from%nod(ip, il_fr)
+                  n_to =   vintf_to%nod(ip, il_to)
+                  ! positive number numbers mean connected
+                  if ((n_fr > 0).and.(n_to > 0)) then
+                    this%nexg = this%nexg + 1
+                    gil_fr = vintf_from%lay_act(il_fr)
+                    gil_to =   vintf_to%lay_act(il_to)
+                    if (gil_fr /= gil_to) then
+                      nexg_diff_lay = nexg_diff_lay + 1
+                    end if
+                    if (iact == 2) then
+                      this%cellidm1(this%nexg) = n_fr
+                      this%cellidm2(this%nexg) = n_to
+                    end if
+                  end if
+                end if
+              end do
+            end do
+          end do !ip
+          !
+          if (iact == 1) then
+            if (this%nexg > 0) then
+              allocate(this%cellidm1(this%nexg))
+              allocate(this%cellidm2(this%nexg))
+            end if
+          end if
+        end do !iact
+      case default
+        call errmsg('tMF6Exchange_set: invalid coupling method.')
+      end select
     end if
     !
     ! check for duplicates
@@ -7871,8 +8098,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     end if
     if ((this%n_cells > 0).and.(this%nlay_act > 0)) then
       nl = this%nlay_act; nc = this%n_cells
-      allocate(this%nod(nc,nl)); this%nod = 0
-      allocate(this%zp(nc,nl+1)); this%zp = this%mv
+      allocate(this%nod(nc,nl));  this%nod = 0
+      allocate(this%zp(nc,nl+1)); this%zp  = this%mv
+      allocate(this%khp(nc,nl));  this%khp = this%mv
     end if
     !
     return
@@ -7891,6 +8119,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     if (allocated(this%lay_act)) deallocate(this%lay_act)
     if (allocated(this%nod))     deallocate(this%nod)
     if (allocated(this%zp))      deallocate(this%zp)
+    if (allocated(this%khp))     deallocate(this%khp)
     !
     return
   end subroutine tVertIntf_clean
@@ -7912,6 +8141,9 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     allocate(tgt%lay_act, source=this%lay_act)
     allocate(tgt%nod, source=this%nod)
     allocate(tgt%zp, source=this%zp)
+    if (allocated(this%zp)) then
+      allocate(tgt%khp, source=this%khp)
+    end if
     !
     return
   end subroutine tVertIntf_copy
@@ -8250,6 +8482,7 @@ subroutine tQuads_add_lm_intf(this, f_out_csv)
     integer(I8B) :: p
     integer(I4B) :: i, j
 ! ------------------------------------------------------------------------------
+    !
     if(.not.present(pos)) then
       read(iu) this%n_nbr, this%mo_nbr, this%n_mv, this%n_fill, &
         this%ncol, this%nrow
