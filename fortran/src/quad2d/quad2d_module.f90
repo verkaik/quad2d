@@ -6473,6 +6473,8 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
               allocate(vtu)
               f_vtu(il) = trim(f_vrt_pref)//'_lid_'//ta([lid])//'_kper_'//ta([kper],'(i3.3)')// &
                 '_il_'//ta([il],'(i3.3)')//'.vtu'
+              d = get_dir(f_vtu(il))
+              call create_dir(d, .true.)
               call pvd%set(itimestep=kper-kper_beg+1, ipart=il, partname=trim(lab_vtu(jl)), f_vtu=f_vtu(il))
               call vtu%init(f=f_vtu(il))
               call vtu%mesh%set_uniform(celltype=i_vtk_voxel, x=vtk_x, nc=nodes, ja=vtk_xi)
