@@ -42,6 +42,7 @@ log.info(f'Start of program: {start_time}')
 
 # command line parser
 clp = argparse.ArgumentParser()
+no_help = '***** NO HELP YET AVAILABLE *****'
 clp.add_argument('-runopt', '--runopt', type=str, default='ss', \
                 help='Run option: ss (steady-state) or tr (transient).')
 clp.add_argument('-mpi', '--mpi', type=str, \
@@ -78,7 +79,9 @@ clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
 clp.add_argument('-id_field', '--id_field', type=str, default='gid', help='Field for the IDs.')
 clp.add_argument('-props_csv', '--props_csv', type=str, default=None, help='CSV with properties.')
 clp.add_argument('-exchanges_csv', '--exchanges_csv', type=str, default=None, help='CSV for exchanges.')
-clp.add_argument('-replace_dict', '--replace_dict', type=str, default='{}', help='CSV for exchanges.')
+clp.add_argument('-replace_dict', '--replace_dict', type=str, default='{}', help='Dict for replacing strings.')
+clp.add_argument('-try_oc_to_ic', '--try_oc_to_ic',  action='store_true', default=False, help=no_help)
+clp.add_argument('-id_not_oc_to_ic', '--id_not_oc_to_ic', nargs="+", default=[], help=no_help)
 
 #args = '-ini hegewarren.ini -pre -run -coupled -parallel -np 2 -runopt ss'
 #cla = clp.parse_args(args.split()).__dict__
@@ -360,7 +363,7 @@ def determine_periods(section, d_mod_ini, d_mod_csv):
     for iper in dsp_ini.keys():
          for id in dsp_ini[iper]:
              id_csv = get_csv_id(id, d_map)
-             if (id in d_mod_csv):
+             if (id_csv in d_mod_csv):
                   data_found = True
     if not data_found:
         return d, ids_csv
@@ -722,7 +725,7 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
 
 #############################################################################
 def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
-    rep_dict):
+    rep_dict, try_oc_to_ic, id_no_oc_to_ic):
 #############################################################################
     # first, check if the nam file is present
     if not 'gwf-nam' in d_mod_ini:
@@ -754,7 +757,23 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
         if module == 'gwf-ic':
             for key in d_map:
                 if key == 'strt':
-                    v = d_map[key]
+                    if not try_oc_to_ic:
+                        v = d_map[key]
+                    else:
+                        v = d_map[key]
+                        if id not in id_no_oc_to_ic:
+                            if 'gwf-oc' in d_mod_ini:
+                                if 'headfile' in d_mod_ini['gwf-oc']:
+                                    v_oc = d_mod_ini['gwf-oc']['headfile']
+                                    # replace the strings
+                                    s = v_oc
+                                    for s_src in rep_dict.keys():
+                                        s_tgt = rep_dict[s_src]
+                                        s = s.replace(s_src, s_tgt)
+                                    s = s.replace('{{model_id}}',str(id))
+                                    if os.path.exists(s):
+                                        v = v_oc
+
                     if v not in d_mod_csv:
                         # replace the strings
                         s = v
@@ -1003,8 +1022,12 @@ def write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
     d_mod_csv = read_csv(str(p), 'id')
 
     # models
+    try_oc_to_ic = get_cla_key('try_oc_to_ic')
+    id_no_oc_to_ic = get_cla_key('id_not_oc_to_ic')
+    #id_no_oc_to_ic = []
+
     gwf_mfname = write_gwf_model(id, nodes, nja, d_mod_ini, d_template, \
-        mod_dir, d_mod_csv, rep_dict)
+        mod_dir, d_mod_csv, rep_dict, try_oc_to_ic, id_no_oc_to_ic)
     gwt_mfname = write_gwt_model(id, d_mod_ini, d_template, mod_dir, \
         d_mod_csv, rep_dict)
 
