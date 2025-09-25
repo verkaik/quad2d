@@ -140,7 +140,7 @@ module mf6_post_module
     !
     ! check if all stress periods are read
     if (maxval(this%kper_map) > 0) then
-      call errmsg('mf6_post_read_ulasav: data not read for all stress periods.')
+      call logmsg('mf6_post_read_ulasav: data not read for all stress periods.')
     end if
     this%kper_map = abs(this%kper_map)
     !

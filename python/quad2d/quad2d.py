@@ -1076,6 +1076,7 @@ def run_model(mf6, mfsim, np=1, mpi=None):
         else:
             print(' '+line.rstrip())
             stdout.append(line)
+            sys.stdout.flush()
     out, err = p.communicate()
     ierr = p.returncode
     log.info(f'Done running with errorcode {ierr}...')
