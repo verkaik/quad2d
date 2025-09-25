@@ -6319,7 +6319,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
             end do
           end if
           allocate(pvd)
-          call pvd%init(f=trim(f_vrt_pref)//'_lid_'//ta([lid])//'.pvd', &
+          call pvd%init(f=trim(f_vrt_pref)//'_gid_'//ta([q%gid])//'.pvd', &
           ndstime=kper_end-kper_beg+1, npart=disu%nlay_act)
           !
           if (allocated(i4wk)) deallocate(i4wk)
@@ -6471,7 +6471,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
               call post%clean(); deallocate(post)
               !
               allocate(vtu)
-              f_vtu(il) = trim(f_vrt_pref)//'_lid_'//ta([lid])//'_kper_'//ta([kper],'(i3.3)')// &
+              f_vtu(il) = trim(f_vrt_pref)//'_gid_'//ta([q%gid])//'_kper_'//ta([kper],'(i3.3)')// &
                 '_il_'//ta([il],'(i3.3)')//'.vtu'
               d = get_dir(f_vtu(il))
               call create_dir(d, .true.)
