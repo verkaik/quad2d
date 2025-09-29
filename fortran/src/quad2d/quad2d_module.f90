@@ -6445,7 +6445,11 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
               call logmsg('VTK yet only supported with grid merging.')
             end if
             !
+            if (associated(post)) then
+              call post%clean(); deallocate(post); post => null()
+            end if
             do kper = kper_beg, kper_end
+              allocate(post)
               call post%init(f, kper, kper, nodes_merge)
               call post%read_ulasav()
               call post%get_grid(kper, nodmap_q, mvr4, xr4_q, nodes_offset)
@@ -6467,8 +6471,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                   call errmsg('tQuads_write_mf6_grid: program error.')
                 end if
               end do
-              deallocate(nodmap_q, xr4_q)
-              call post%clean(); deallocate(post)
+              call post%clean(); deallocate(post); post => null()
               !
               allocate(vtu)
               f_vtu(il) = trim(f_vrt_pref)//'_gid_'//ta([q%gid])//'_kper_'//ta([kper],'(i3.3)')// &
@@ -6482,6 +6485,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
               call vtu%write_bin_raw()
               call vtu%clean(); deallocate(vtu); vtu => null()
             end do ! kper
+            deallocate(nodmap_q, xr4_q)
           end do ! layer
           !
           ! write the pvd
