@@ -6785,7 +6785,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     type(tCSV), pointer :: csv_in => null(), csv_out => null()
     type(tMF6Disu), pointer :: disu => null()
     !
-    integer(I4B), dimension(:), allocatable :: layer_arr, lid_arr, nodes_read
+    integer(I4B), dimension(:), allocatable :: layer_arr, lid_arr, nodes_read, x_active
     integer(I4B), dimension(:), allocatable :: xmap, hdr_i_type, kper_arr
     real(R8B), dimension(:), allocatable :: r8w
     real(R8B), dimension(:,:), allocatable :: x_arr, heads_read, heads_out
@@ -6794,7 +6794,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     !
     character(len=MXSLEN) :: f, s, id
     logical :: lflag, layer_found, lfound, llayer, lz, lnod
-    integer(I4B) :: nx, mx, lid, lid_read, ix, ic, ir, il, jl, ilay, jlay, nod, n, i
+    integer(I4B) :: nx, mx, lid, lid_read, ix, jx, ic, ir, il, jl, ilay, jlay, nod, n, i, nx_active
     integer(I4B) :: kper, nper, il_min, il_max, il_top, il_bot
     real(R8B) :: z, top, bot
 ! ------------------------------------------------------------------------------
@@ -6802,7 +6802,8 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     allocate(csv_in)
     call csv_in%read(f_in_point_csv)
     nx = csv_in%get_nr()
-    allocate (x_arr(3,nx)); x_arr = R8MV
+    allocate(x_arr(3,nx)); x_arr = R8MV
+    allocate(x_active(nx)); x_active = 0
     call csv_in%get_column(key='x', r8a=r8w); x_arr(1,:) = r8w 
     call csv_in%get_column(key='y', r8a=r8w); x_arr(2,:) = r8w
     allocate(layer_arr(nx)); layer_arr = 0
@@ -6847,10 +6848,10 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     !
     nper = kper_end - kper_beg + 1
     allocate(kper_arr(nper))
-    nper = 1
+    nper = 0
     do kper = kper_beg, kper_end
-      kper_arr(nper) = kper
       nper = nper + 1
+      kper_arr(nper) = kper
     end do
     allocate(heads_out(nx,nper)); heads_out = R8MV
     !
@@ -6964,6 +6965,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                     call csv_in%get_val(ir=ix, key='nod', i4v=n)
                     if (n == 0) then
                       mx = mx + 1
+                      x_active(ix) = 1
                       call csv_in%set_val_by_key(key='lid', ir=ix, i4v=lid)
                       call csv_in%set_val_by_key(key='nod', ir=ix, i4v=nod)
                       call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=ilay)
@@ -7013,26 +7015,39 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
       end if
     end do
     !
-    ! initialize the output csv, set the data and write
+    nx_active = 0
+    do ix = 1, nx
+      if (x_active(ix) /= 0) then
+        nx_active = nx_active + 1
+        x_active(ix) = nx_active
+      end if
+    end do
     allocate(csv_out)
-    allocate(hdr_keys(nx+1), hdr_i_type(nx+1))
+    allocate(hdr_keys(nx_active+1), hdr_i_type(nx_active+1))
     hdr_keys(1) = 'kper'
     hdr_i_type(1) = i_i4
     do ix = 1, nx
+      jx = x_active(ix)
+      if (jx == 0) cycle
       call csv_in%get_val(ir=ix, key='id', cv=id)
       call csv_in%get_val(ir=ix, key='ilay', i4v=ilay)
-      hdr_keys(ix+1) = 'heads_layer'//ta([ilay])//'_'//trim(change_case(id,'l'))
-      hdr_i_type(ix+1) = i_r8
+      hdr_keys(jx+1) = 'heads_layer'//ta([ilay])//'_'//trim(change_case(id,'l'))
+      hdr_i_type(jx+1) = i_r8
     end do
     call csv_out%init(file=f_out_point_csv, hdr_keys=hdr_keys, &
       nr=nper, hdr_i_type=hdr_i_type)
     call csv_out%set_column(key='kper', i4a=kper_arr)
     do ix = 1, nx
-      call csv_out%set_column(key=hdr_keys(ix+1), r8a=heads_out(ix,:))
+      jx = x_active(ix)
+      if (jx == 0) cycle
+      call csv_out%set_column(key=hdr_keys(jx+1), r8a=heads_out(ix,:))
     end do
     call csv_out%write()
     !
     ! clean up
+    if (allocated(x_arr)) deallocate(x_arr)
+    if (allocated(x_active)) deallocate(x_active)
+    if (allocated(lid_arr)) deallocate(lid_arr)
     if (allocated(nodes_read)) deallocate(nodes_read)
     if (allocated(heads_read)) deallocate(heads_read)
     if (allocated(heads_out)) deallocate(heads_out)
