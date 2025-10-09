@@ -72,7 +72,9 @@ clp.add_argument('-parallel', '--parallel', action='store_true', default=False, 
 clp.add_argument('-serial_decoupled', '--serial_decoupled', action='store_true', default=False, \
                 help='Flag for enabling running with multiple decoupled models .')
 clp.add_argument('-cgc', '--cgc', action='store_true', default=False,
-                help='Coarse grid correction option.')
+                help='Flag for enabling coarse grid correction option.')
+clp.add_argument('-standard_mf6', '--standard_mf6', action='store_true', default=False,
+                help='Flag for enabling standard MODFLOW.')
 clp.add_argument('-cgc_solver', '--cgc_solver', type=int, default=1,
                 help='Coarse grid correction solver (1: LU; 2: ILU(0)).')
 clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
@@ -492,12 +494,16 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
 
     log.info('Writing simulation files...')
 
+    standard_mf6     = get_cla_key('standard_mf6')
     parallel         = get_cla_key('parallel')
     nrproc = 1
     cgc              = get_cla_key('cgc')
     serial_decoupled = get_cla_key('serial_decoupled')
     runopt           = get_cla_key('runopt')
     if serial_decoupled:
+        parallel = False
+    if standard_mf6:
+        cgc = False
         parallel = False
 
     ############
@@ -601,7 +607,7 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
     # SIM-NAM: solution models ascii #
     ###################################
     d_smo = {}
-    if not serial_decoupled:
+    if (not serial_decoupled):
         tp_name = 'sim-nam-solution-models'
         for mt in d_mf6_mod:
             s = f_base + '.smo.' + mt + '.asc'
@@ -611,24 +617,25 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
             fname = Path(s)
             #
             d_smo[mt] = fname
-            d = {}
-            d['solutionmodels'] = []
-            if cgc:
-                d['coarse_grid_correction'] = True
-            i_cgc = 0
-            for mod in d_mf6_mod[mt]['models']:
-                id = mod[2]
-                if parallel:
-                    i_cgc = mod[3]
-                else:
-                    i_cgc += 1
+            if not standard_mf6:
+                d = {}
+                d['solutionmodels'] = []
                 if cgc:
-                    d['solutionmodels'].append((id, i_cgc))
-                else:
-                    d['solutionmodels'].append((id))
-            template = mf6_template(tp_name)
-            template.set(d, valid_keys=d_template[tp_name])
-            template.render(fname)
+                    d['coarse_grid_correction'] = True
+                i_cgc = 0
+                for mod in d_mf6_mod[mt]['models']:
+                    id = mod[2]
+                    if parallel:
+                        i_cgc = mod[3]
+                    else:
+                        i_cgc += 1
+                    if cgc:
+                        d['solutionmodels'].append((id, i_cgc))
+                    else:
+                        d['solutionmodels'].append((id))
+                template = mf6_template(tp_name)
+                template.set(d, valid_keys=d_template[tp_name])
+                template.render(fname)
 
     ##########################################
     # SIM-NAM: solution models ascii wrapper #
@@ -652,7 +659,10 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
     ###########
     # SIM-NAM #
     ###########
-    s = f_base + '.nam'
+    if standard_mf6:
+        s = os.path.dirname(f_base) + '\\mfsim.nam'
+    else:
+        s = f_base + '.nam'
     for s_src in rep_dict.keys():
         s_tgt = rep_dict[s_src]
         s = s.replace(s_src, s_tgt)
@@ -660,14 +670,14 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
     #
     mfsim_list = write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
         fname_nam, fname_tdis, fname_mod, fname_xch, \
-        nrproc)
+        nrproc, standard_mf6)
     return mfsim_list
 
 
 #############################################################################
 def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
     fname_nam, fname_tdis, fname_mod, fname_xch, \
-    nrproc):
+    nrproc, standard_mf6):
 #############################################################################
     serial_decoupled = get_cla_key('serial_decoupled')
     cgc              = get_cla_key('cgc')
@@ -690,12 +700,20 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
             d['domain_decomposition'] = nrproc
         d['models'] = fname_mod
         d['models_is_file'] = True
-        d['filein'] = True
         if fname_xch is not None:
             d['exchanges'] = fname_xch
         lst = []
-        for mt in d_mf6_mod:
-            lst.append((ims6_label, d_ims[mt], d_smw[mt]))
+        if not standard_mf6:
+           d['filein'] = True
+           for mt in d_mf6_mod:
+                lst.append((ims6_label, d_ims[mt], d_smw[mt]))
+        else:
+            for mt in d_mf6_mod:
+                id_list = []
+                for mod in d_mf6_mod[mt]['models']:
+                    id = mod[2]
+                    id_list.append(id)
+                lst.append((ims6_label, d_ims[mt], id_list))
         d['solutiongroups'] = []
         d['solutiongroups'].append(lst)
         template = mf6_template(section)
@@ -1076,7 +1094,6 @@ def run_model(mf6, mfsim, np=1, mpi=None):
         else:
             print(' '+line.rstrip())
             stdout.append(line)
-            sys.stdout.flush()
     out, err = p.communicate()
     ierr = p.returncode
     log.info(f'Done running with errorcode {ierr}...')
