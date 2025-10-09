@@ -73,7 +73,7 @@ module main_module
   character(len=MXSLEN), dimension(n_prop_field) :: fields
   !
   logical :: lrenumber, lwrite, ljoin, lsplit, lremove, lwrite_props
-  logical :: loverwrite_props, lwrite_asc, luse_uuid, lwrite_disu
+  logical :: loverwrite_props, lwrite_asc, lwrite_bin, luse_uuid, lwrite_disu
   logical, parameter :: LDUM = .true.
   logical :: write_nod_map, write_chd, write_hiera
   logical :: luse_chaco, lwrite_ximbal
@@ -227,6 +227,10 @@ subroutine quad_settings()
     call ini%get_val(sect, 'write_props', l4v=lwrite_props, l4v_def=.true.)
     call ini%get_val(sect, 'overwrite_props', l4v=loverwrite_props, l4v_def=.false.)
     call ini%get_val(sect, 'write_asc', l4v=lwrite_asc, l4v_def=.false.)
+    call ini%get_val(sect, 'write_bin', l4v=lwrite_bin, l4v_def=.false.)
+    if (lwrite_asc .and. lwrite_bin) then
+      call errmsg('write_asc and write_bin cannot be active at the same time.')
+    end if
     !
     call ini%get_val(sect, 'd_in',    cv=d_in,    cv_def='.'); call add_slash(d_in)
     call ini%get_val(sect, 'uuid_in', cv=uuid_in, cv_def='quad2d')
@@ -5605,7 +5609,7 @@ subroutine quad_grid_gen()
         ! create the grid and store the arrays
         allocate(disu)
         call disu%init()
-        if(.not.lwrite_asc) then
+        if((.not.lwrite_asc).and.(.not.lwrite_bin)) then
           f_binpos = trim(strip_ext(f_csv_dat))//'_grid_gen.binpos'
           call disu%init_csv(f_csv_dat, f_binpos)
         else
@@ -5637,6 +5641,9 @@ subroutine quad_grid_gen()
           if (lwrite_asc) then
             call disu%write(write_opt=1, write_asc=.true., d_out=trim(q%mod_dir)//'\')
             call disu%write(write_opt=2, write_asc=.true., d_out=trim(q%mod_dir)//'\')
+          elseif (lwrite_bin) then
+            call disu%write(write_opt=1, write_bin=.true., d_out=trim(q%mod_dir)//'\')
+            call disu%write(write_opt=2, write_bin=.true., d_out=trim(q%mod_dir)//'\')
           else
             call disu%write(write_opt=1)
             call disu%write(write_opt=2)
@@ -5781,7 +5788,7 @@ subroutine quad_grid_gen_merge()
 !  do im = 1, 1
     d = trim(mod_root_dir)//slash//ta([im]); call create_dir(d, .true.)
     f_csv_dat = trim(d)//slash//'dat.csv'
-    if(.not.lwrite_asc) then
+    if((.not.lwrite_asc).and.(.not.lwrite_bin)) then
       f_binpos = trim(strip_ext(f_csv_dat))//'_grid_gen.binpos'
     end if
     !
@@ -5840,7 +5847,7 @@ subroutine quad_grid_gen_merge()
     ! initialize the merged disu
     allocate(disu_merge)
     call disu_merge%init()
-    if(.not.lwrite_asc) then
+    if((.not.lwrite_asc).and.(.not.lwrite_bin)) then
       call disu_merge%init_csv(f_csv_dat, f_binpos)
     else
       call disu_merge%init_csv(f_csv_dat)
@@ -5858,7 +5865,7 @@ subroutine quad_grid_gen_merge()
     do km = 1, nlid
       disu => disu_arr(km)
       !
-      if(.not.lwrite_asc) then
+      if((.not.lwrite_asc).and.(.not.lwrite_bin)) then
         call disu%init_csv(f_csv_dat, f_binpos, reuse=.true.)
       else
         call disu%init_csv(f_csv_dat, reuse=.true.)
