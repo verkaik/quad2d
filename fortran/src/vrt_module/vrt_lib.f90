@@ -1826,6 +1826,7 @@ module vrt_module
     !
     do itile = this%ntiles, 1, -1
       if (flg1(itile) == 0) cycle
+      tile => this%tiles(itile)
       hdrg => tile%hdrg; hdr => hdrg%hdr
       if (present(r4a)) then
         do i = 1, np
