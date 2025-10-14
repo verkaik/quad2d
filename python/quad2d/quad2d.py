@@ -1094,6 +1094,7 @@ def run_model(mf6, mfsim, np=1, mpi=None):
         else:
             print(' '+line.rstrip())
             stdout.append(line)
+            sys.stdout.flush()
     out, err = p.communicate()
     ierr = p.returncode
     log.info(f'Done running with errorcode {ierr}...')
@@ -1123,7 +1124,7 @@ def pre():
         rep_dict = eval(get_cla_key('replace_dict'))
 
     # read the properties
-    if key_present(d_ini, '_general', 'props_csv'):    
+    if key_present(d_ini, '_general', 'props_csv'):
         f = get_key(d_ini, '_general', 'props_csv')
     else:
         f = get_cla_key('props_csv')
@@ -1132,7 +1133,7 @@ def pre():
     d_props = read_csv(f, id_field, filter_ids=id_list)
 
     # read the exchanges
-    if key_present(d_ini, '_general', 'exchanges_csv'):    
+    if key_present(d_ini, '_general', 'exchanges_csv'):
         f = get_key(d_ini, '_general', 'exchanges_csv')
     else:
         f = get_cla_key('exchanges_csv')
