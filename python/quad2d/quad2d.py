@@ -73,10 +73,10 @@ clp.add_argument('-serial_decoupled', '--serial_decoupled', action='store_true',
                 help='Flag for enabling running with multiple decoupled models .')
 clp.add_argument('-cgc', '--cgc', action='store_true', default=False,
                 help='Flag for enabling coarse grid correction option.')
-clp.add_argument('-standard_mf6', '--standard_mf6', action='store_true', default=False,
-                help='Flag for enabling standard MODFLOW.')
 clp.add_argument('-cgc_solver', '--cgc_solver', type=int, default=1,
                 help='Coarse grid correction solver (1: LU; 2: ILU(0)).')
+clp.add_argument('-standard_mf6', '--standard_mf6', action='store_true', default=False,
+                help='Flag for enabling standard MODFLOW.')
 clp.add_argument('-ini', '--ini', type=str, help='INI-file.')
 clp.add_argument('-id_field', '--id_field', type=str, default='gid', help='Field for the IDs.')
 clp.add_argument('-props_csv', '--props_csv', type=str, default=None, help='CSV with properties.')
@@ -1092,7 +1092,7 @@ def run_model(mf6, mfsim, np=1, mpi=None):
         if not line:
             break
         else:
-            print(' '+line.rstrip())
+            log.info(' '+line.rstrip())
             stdout.append(line)
             sys.stdout.flush()
     out, err = p.communicate()
