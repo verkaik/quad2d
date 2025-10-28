@@ -493,6 +493,17 @@ contains
       if (present(i4a)) read(iu,*) i4a
       if (present(r8a)) read(iu,*) r8a
       close(iu)
+    case('bin')
+      call open_file(file, iu, 'r', .true.)
+      read(iu) I4DUM, I4DUM, R8DUM, R8DUM, C16DUM, n_read, I4DUM, I4DUM
+      if (n /= n_read) then
+        call errmsg('tMf6Wbd_read_array: inconsistent dimensions.')
+      end if
+      if (present(i1a)) read(iu) i1a
+      if (present(i2a)) read(iu) i2a
+      if (present(i4a)) read(iu) i4a
+      if (present(r8a)) read(iu) r8a
+      close(iu)
     case default
       call errmsg('tMf6Wbd_read_array: not yet supported.')
     end select
