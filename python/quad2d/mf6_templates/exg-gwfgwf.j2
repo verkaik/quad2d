@@ -1,6 +1,8 @@
 begin options
 {% if auxiliary is defined %}  auxiliary {{auxiliary}}
 {% endif -%}
+{%- if dev_interfacemodel_on is defined %}  dev_interfacemodel_on
+{% endif -%}
 {%- if print_input is defined %}  print_input
 {% endif -%}
 {%- if print_flows is defined %}  print_flows
