@@ -10433,6 +10433,7 @@ end subroutine addboundary_r
     end do
     !
     s1 = trim(f1)
+    call swap_slash(s1)
     do j = 1, n + 1 ! include the file
       i1 = index(s1, slash, back=.true.)
       s1 = s1(1:i1-1)
