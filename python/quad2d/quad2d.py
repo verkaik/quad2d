@@ -18,6 +18,7 @@ import argparse
 from subprocess import Popen, PIPE
 from collections import OrderedDict as od
 from pathlib import Path
+import re
 
 # get the starting time
 start_time = datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S')
@@ -82,6 +83,8 @@ clp.add_argument('-id_field', '--id_field', type=str, default='gid', help='Field
 clp.add_argument('-props_csv', '--props_csv', type=str, default=None, help='CSV with properties.')
 clp.add_argument('-exchanges_csv', '--exchanges_csv', type=str, default=None, help='CSV for exchanges.')
 clp.add_argument('-replace_dict', '--replace_dict', type=str, default='{}', help='Dict for replacing strings.')
+clp.add_argument('-replace_left_token', '--replace_left_token', type=str, default='{{', help='Left replacement token.')
+clp.add_argument('-replace_right_token', '--replace_right_token', type=str, default='}}', help='Right replacement token.')
 clp.add_argument('-try_oc_to_ic', '--try_oc_to_ic',  action='store_true', default=False, help=no_help)
 clp.add_argument('-id_not_oc_to_ic', '--id_not_oc_to_ic', nargs="+", default=[], help=no_help)
 
@@ -102,6 +105,16 @@ i_binpos = 3
 # {%- by itself means current line should have no empty lines between current and previous line
 # -%} by itself means current line should have a single empty line above it
 # {%- and -%} means current line should be flush with previous line
+
+#############################################################################
+def replace_str_ignorecase(s_src, s_tgt_in, s_in):
+#############################################################################
+    s_tgt = s_tgt_in.replace("\\", "/")
+    pattern = re.compile(s_src, re.IGNORECASE)
+    s_out = pattern.sub(s_tgt, s_in)
+    s_out = s_out.replace("/", os.sep)
+
+    return s_out
 
 #############################################################################
 def get_cla_key(key):
@@ -238,6 +251,12 @@ def read_ini(f):
                     v = v_tmp
                 except:
                     log_error(f'Could not read perioddata in [{k1}]')
+            elif('nper' in k2):
+                try:
+                    v_tmp = eval(v2.replace('\n',''))
+                    v = v_tmp
+                except:
+                    log_error(f'Could not read nper in [{k1}]')
             d[k1_lc][k2_lc] = v
     return d
 
@@ -463,7 +482,8 @@ def write_exchanges(d_ini, d_xch, d_template, d_mf6_mod, rep_dict):
                 fdir = get_key(d_ini, section, 'fdir')
                 for s_src in rep_dict.keys():
                     s_tgt = rep_dict[s_src]
-                    fdir = fdir.replace(s_src, s_tgt)
+                    fdir = replace_str_ignorecase(s_src, s_tgt, fdir)
+                    #fdir = fdir.replace(s_src, s_tgt)
                 d_sect = {}
                 for k, v in d_ini[section].items():
                     d_sect[k] = v
@@ -513,7 +533,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
     fname_tdis = get_key(d_ini, section+'_'+runopt, 'fname')
     for s_src in rep_dict.keys():
         s_tgt = rep_dict[s_src]
-        fname_tdis = fname_tdis.replace(s_src, s_tgt)
+        fname_tdis = replace_str_ignorecase(s_src, s_tgt, fname_tdis)
+        #fname_tdis = fname_tdis.replace(s_src, s_tgt)
     d = {}
     for k, v in d_ini[section+'_'+get_cla_key('runopt')].items():
         d[k] = v
@@ -532,7 +553,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
         s = f_base + '.mod.asc'
         for s_src in rep_dict.keys():
             s_tgt = rep_dict[s_src]
-            s = s.replace(s_src, s_tgt)
+            s = replace_str_ignorecase(s_src, s_tgt, s)
+            #s = s.replace(s_src, s_tgt)
         fname_mod = Path(s)
 
         tp_name = 'sim-nam-models'
@@ -560,7 +582,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
         s = f_base + '.xch.asc'
         for s_src in rep_dict.keys():
             s_tgt = rep_dict[s_src]
-            s = s.replace(s_src, s_tgt)
+            s = replace_str_ignorecase(s_src, s_tgt, s)
+            #s = s.replace(s_src, s_tgt)
         fname_xch = Path(s)
         #
         for xch_type in d_xch_files:
@@ -589,7 +612,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
         fname = get_key(d_ini, section, 'fname')
         for s_src in rep_dict.keys():
             s_tgt = rep_dict[s_src]
-            fname = fname.replace(s_src, s_tgt)
+            fname = replace_str_ignorecase(s_src, s_tgt, fname)
+            #fname = fname.replace(s_src, s_tgt)
         d_ims[mt] = fname
         d = {}
         for k, v in d_ini[section].items():
@@ -613,7 +637,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
             s = f_base + '.smo.' + mt + '.asc'
             for s_src in rep_dict.keys():
                 s_tgt = rep_dict[s_src]
-                s = s.replace(s_src, s_tgt)
+                s = replace_str_ignorecase(s_src, s_tgt, s)
+                #s = s.replace(s_src, s_tgt)
             fname = Path(s)
             #
             d_smo[mt] = fname
@@ -647,7 +672,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
             s = f_base + '.smw.asc'
             for s_src in rep_dict.keys():
                 s_tgt = rep_dict[s_src]
-                s = s.replace(s_src, s_tgt)
+                s = replace_str_ignorecase(s_src, s_tgt, s)
+                #s = s.replace(s_src, s_tgt)
             fname = Path(s)
             d_smw[mt] = fname
             d = {}
@@ -665,7 +691,8 @@ def write_simulation(d_ini, d_xch_files, d_template, d_mf6_mod, rep_dict):
         s = f_base + '.nam'
     for s_src in rep_dict.keys():
         s_tgt = rep_dict[s_src]
-        s = s.replace(s_src, s_tgt)
+        s = replace_str_ignorecase(s_src, s_tgt, s)
+        #s = s.replace(s_src, s_tgt)
     fname_nam = Path(s)
     #
     mfsim_list = write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
@@ -743,7 +770,7 @@ def write_mfsim(d_ini, d_template, d_mf6_mod, d_ims, d_smw, \
 
 #############################################################################
 def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
-    rep_dict, try_oc_to_ic, id_no_oc_to_ic):
+    rep_dict, try_oc_to_ic, id_no_oc_to_ic, rep_token):
 #############################################################################
     # first, check if the nam file is present
     if not 'gwf-nam' in d_mod_ini:
@@ -787,8 +814,10 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
                                     s = v_oc
                                     for s_src in rep_dict.keys():
                                         s_tgt = rep_dict[s_src]
-                                        s = s.replace(s_src, s_tgt)
-                                    s = s.replace('{{model_id}}',str(id))
+                                        s = replace_str_ignorecase(s_src, s_tgt, s)
+                                        #s = s.replace(s_src, s_tgt)
+                                    s = replace_str_ignorecase(f'{rep_token[0]}model_id{rep_token[1]}', str(id), s)
+                                    #s = s.replace(f'{rep_token[0]}model_id{rep_token[1]}',str(id))
                                     if os.path.exists(s):
                                         v = v_oc
 
@@ -797,8 +826,10 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
                         s = v
                         for s_src in rep_dict.keys():
                             s_tgt = rep_dict[s_src]
-                            s = s.replace(s_src, s_tgt)
-                        s = s.replace('{{model_id}}',str(id))
+                            s = replace_str_ignorecase(s_src, s_tgt, s)
+                            #s = s.replace(s_src, s_tgt)
+                        s = replace_str_ignorecase(f'{rep_token[0]}model_id{rep_token[1]}', str(id), s)
+                        #s = s.replace(f'{rep_token[0]}model_id{rep_token[1]}',str(id))
                         v = s
                         fname = Path(v)
                         if not fname.is_file():
@@ -838,8 +869,10 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
                 # replace the strings
                 for s_src in rep_dict.keys():
                     s_tgt = rep_dict[s_src]
-                    s = s.replace(s_src, s_tgt)
-                s = s.replace('{{model_id}}',str(id))
+                    s = replace_str_ignorecase(s_src, s_tgt, s)
+                    #s = s.replace(s_src, s_tgt)
+                s = replace_str_ignorecase(f'{rep_token[0]}model_id{rep_token[1]}', str(id), s)
+                #s = s.replace(f'{rep_token[0]}model_id{rep_token[1]}',str(id))
                 #
                 d[f] = s
         template = mf6_template(section)
@@ -913,8 +946,10 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
         s = d['listing_file']
         for s_src in rep_dict.keys():
             s_tgt = rep_dict[s_src]
-            s = s.replace(s_src, s_tgt)
-        s = s.replace('{{model_id}}',str(id))
+            s = replace_str_ignorecase(s_src, s_tgt, s)
+            #s = s.replace(s_src, s_tgt)
+        s = replace_str_ignorecase(f'{rep_token[0]}model_id{rep_token[1]}', str(id), s)
+        #s = s.replace(f'{rep_token[0]}model_id{rep_token[1]}',str(id))
         d['listing_file'] = Path(s)
     template.set(d, valid_keys=d_template[section])
     fname = mod_dir / f"{id}.{runopt}.gwf.nam"
@@ -923,7 +958,7 @@ def write_gwf_model(id, nodes, nja, d_mod_ini, d_template, mod_dir, d_mod_csv, \
     return fname
 
 #############################################################################
-def write_gwt_model(id, d_mod_ini, d_template, mod_dir, d_mod_csv, rep_dict): #TODO
+def write_gwt_model(id, d_mod_ini, d_template, mod_dir, d_mod_csv, rep_dict, rep_token): #TODO
 #############################################################################
     # first, check if the nam file is present
     if not 'gwt-nam' in d_mod_ini:
@@ -1018,7 +1053,7 @@ def mf6_model_admin(d_ini, d_xch, mf6_mod_lst):
 
 #############################################################################
 def write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
-    single_model, rep_dict):
+    single_model, rep_dict, rep_token):
 #############################################################################
     log.info(f'Writing MODFLOW 6 model files for id={id}...')
     #
@@ -1045,9 +1080,9 @@ def write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
     #id_no_oc_to_ic = []
 
     gwf_mfname = write_gwf_model(id, nodes, nja, d_mod_ini, d_template, \
-        mod_dir, d_mod_csv, rep_dict, try_oc_to_ic, id_no_oc_to_ic)
+        mod_dir, d_mod_csv, rep_dict, try_oc_to_ic, id_no_oc_to_ic, rep_token)
     gwt_mfname = write_gwt_model(id, d_mod_ini, d_template, mod_dir, \
-        d_mod_csv, rep_dict)
+        d_mod_csv, rep_dict, rep_token)
 
     # get partition number
     parallel = get_cla_key('parallel')
@@ -1123,6 +1158,8 @@ def pre():
     else:
         rep_dict = eval(get_cla_key('replace_dict'))
 
+    rep_token = [get_cla_key('replace_left_token'), get_cla_key('replace_right_token')]
+
     # read the properties
     if key_present(d_ini, '_general', 'props_csv'):
         f = get_key(d_ini, '_general', 'props_csv')
@@ -1182,7 +1219,7 @@ def pre():
         i += 1
         log.info(10*'='+f' Processing {i:06d}/{n:06d} '+10*'=')
         lst = write_model(id, d_ini, d_props, d_mod_ini_dict, d_template, \
-            single_model, rep_dict)
+            single_model, rep_dict, rep_token)
         mf6_mod_lst.extend(lst)
 
     # set up the administration
