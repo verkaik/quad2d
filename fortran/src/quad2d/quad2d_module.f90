@@ -221,12 +221,18 @@ module quad2dModule
     type(tVrtArray),  pointer :: laymod_vrta => null()
     type(tVrtArray),  pointer :: kh_vrta     => null()
     type(tVrt),       pointer :: laymod_vrt  => null() !compressed only
+    !
+    integer(I4B) :: nlay_ref
+    integer(I4B), dimension(:,:), pointer :: lay_ref => null()
   contains
-    procedure :: init           => tLayerModel_init
-    procedure :: clean          => tLayerModel_clean
-    procedure :: read_extent    => tLayerModel_read_extent
-    procedure :: read_xy        => tLayerModel_read_xy
-    procedure :: read_full_grid => tLayerModel_read_full_grid
+    procedure :: init            => tLayerModel_init
+    procedure :: clean           => tLayerModel_clean
+    procedure :: read_extent     => tLayerModel_read_extent
+    procedure :: read_extent_ref => tLayerModel_read_extent_ref
+    procedure :: read_xy         => tLayerModel_read_xy
+    procedure :: read_xy_ref     => tLayerModel_read_xy_ref
+    procedure :: get_nlay        => tLayerModel_get_nlay
+    !procedure :: read_full_grid  => tLayerModel_read_full_grid
   end type tLayerModel
   !
   type, public :: tLayerModels
@@ -263,6 +269,7 @@ module quad2dModule
     integer(I4B) :: i_uscl
     integer(I4B) :: i_dscl
     real(R8B)    :: mult_fac
+    real(R8B)    :: add_val
     logical(I4B) :: lconst
     real(R8B)    :: r8const
     type(tVrt),      pointer :: vrt  => null()
@@ -870,7 +877,7 @@ module quad2dModule
     return
   end subroutine tMF6Disu_x_to_top_nodes
   
-  subroutine tMF6Disu_x_to_top_nodes_grid(this, top_nodes_grid)
+  subroutine tMF6Disu_x_to_top_nodes_grid(this, top_nodes_grid, sat)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -878,6 +885,7 @@ module quad2dModule
     ! -- dummy
     class(tMF6Disu) :: this
     integer(I4B), dimension(:,:), allocatable, intent(inout) :: top_nodes_grid
+    real(R8B), dimension(:), intent(in) :: sat
     ! -- local
     integer(I4B) :: il, ir, ic, nl, nr, nc, n
 ! ------------------------------------------------------------------------------
@@ -898,8 +906,10 @@ module quad2dModule
       do il = 1, nl
         n = abs(this%grid_x_nod(ic,ir,il))
         if (n > 0) then
-          top_nodes_grid(ic,ir) = n
-          exit
+          if (sat(n) == R8ONE) then
+            top_nodes_grid(ic,ir) = n
+            exit
+          end if
         end if
       end do
     end do; end do
@@ -2214,6 +2224,15 @@ module quad2dModule
           read(s,*) dat%mult_fac
         end if
       end if
+      !
+      ! addition value
+      dat%add_val = R8ZERO
+      if (parl%exist_col('add_val')) then
+        call parl%get_val(ir=ir, ic=parl%get_col('add_val'), cv=s)
+        if (len_trim(s) > 0) then
+          read(s,*) dat%add_val
+        end if
+      end if
     end do
     !
     call parm%get_val(ir=idat, ic=parm%get_col('ilay'), cv=s)
@@ -2571,7 +2590,7 @@ module quad2dModule
 ! ==============================================================================
 ! ==============================================================================
   
-   subroutine tLayerModel_init(this, idx, name, nlay, f, f_type, f_kh)
+   subroutine tLayerModel_init(this, idx, name, nlay, f, f_type, f_kh, f_ref)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -2584,11 +2603,15 @@ module quad2dModule
     character(len=*), intent(in) :: f
     integer(I4B), intent(in) :: f_type
     character(len=*), intent(in), optional :: f_kh
+    character(len=*), intent(in), optional :: f_ref
     !
     ! -- local
     type(tVrt),      pointer :: vrt => null()
     type(tVrtArray), pointer :: vrta => null()
-    integer(I4B) :: il
+    type(tCSV), pointer :: csv => null()
+    !
+    integer(I4B) :: il, ir
+    integer(I4B), allocatable, dimension(:) :: ilay_ref, nlay_ref
 ! ------------------------------------------------------------------------------
     ! nullify the pointers
     this%laymod_vrt  => null()
@@ -2614,6 +2637,13 @@ module quad2dModule
       vrta => this%laymod_vrta
       vrta%f = f
       call vrta%init(f)
+      if (this%nlay == 0) then
+        this%nlay = vrta%n - 1
+      end if
+    end if
+    !
+    if (this%nlay == 0) then
+      call errmsg('tLayerModel_init: nlay = 0.')
     end if
     !
     if (present(f_kh)) then
@@ -2623,6 +2653,22 @@ module quad2dModule
       call vrta%init(f)
     end if
     !
+    if (present(f_ref)) then
+      allocate(csv)
+      call csv%read(f_ref)
+      call csv%get_column(key='layer', i4a=ilay_ref)
+      call csv%get_column(key='nlay',  i4a=nlay_ref)
+      this%nlay_ref = size(ilay_ref)
+      allocate(this%lay_ref(2, this%nlay_ref))
+      do ir = 1, this%nlay_ref
+        this%lay_ref(1, ir) = ilay_ref(ir)
+        this%lay_ref(2, ir) = nlay_ref(ir)
+      end do
+      deallocate(ilay_ref, nlay_ref)
+    else
+      this%nlay_ref = 0
+      this%lay_ref => null()
+    end if
     return
   end subroutine tLayerModel_init
  
@@ -2660,10 +2706,73 @@ module quad2dModule
     this%laymod_vrta => null()
     this%kh_vrta     => null()
     !
+    this%nlay_ref = 0
+    if (associated(this%lay_ref)) then
+      deallocate(this%lay_ref)
+    end if
+    !
     return
-  end subroutine tLayerModel_clean
+   end subroutine tLayerModel_clean
    
-  subroutine tLayerModel_read_full_grid(this)
+!  subroutine tLayerModel_read_full_grid(this)
+!! ******************************************************************************
+!!
+!!    SPECIFICATIONS:
+!! ------------------------------------------------------------------------------
+!    ! -- dummy
+!    class(tLayerModel) :: this
+!    !
+!    ! -- local
+!    type(tVrt), pointer :: vrt => null()
+!    type(tVrtArray), pointer :: vrta => null()
+!    logical :: lconst
+!    integer(I4B) :: il, it
+!    real(R4B) :: r4const
+!! ------------------------------------------------------------------------------
+!    !
+!    vrta => this%laymod_vrta
+!    if (.not.associated(vrta)) then
+!      return
+!    end if
+!    do il = 1, this%nlay + 1
+!      call vrta%check_constant(il, lconst, r4const)
+!      if (.not.lconst) then
+!        vrt => vrta%get_vrt(il)
+!        do it = 1, vrt%ntiles
+!          call vrt%read_full_tile(itile=it, clean_hdrg=.false.)
+!        end do
+!        vrt%full_data_read = .true.
+!      end if
+!    end do
+!    !
+!    return
+!  end subroutine tLayerModel_read_full_grid
+   
+  function tLayerModel_get_nlay(this) result(nlay)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tLayerModel) :: this
+    integer(I4B) :: nlay
+    ! -- local
+    integer(I4B) :: i, n
+! ------------------------------------------------------------------------------
+    nlay = this%nlay
+    !
+    if (this%nlay_ref > 0) then
+      n = 0
+      do i = 1, this%nlay_ref
+        n = n + this%lay_ref(2,i) - 1
+      end do
+      nlay = nlay + n
+    end if
+    !
+    return
+  end function tLayerModel_get_nlay
+   
+  subroutine tLayerModel_read_xy_ref(this, x, y, cs, zp, khp, mv, lay_act, nl_act)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -2671,33 +2780,372 @@ module quad2dModule
     ! -- dummy
     class(tLayerModel) :: this
     !
+    real(R8B), dimension(:), intent(in) :: x
+    real(R8B), dimension(:), intent(in) :: y
+    real(R8B), dimension(:), intent(in) :: cs
+    !
+    real(R4B), dimension(:,:), allocatable, intent(inout) :: zp
+    real(R4B), dimension(:,:), allocatable, intent(inout) :: khp
+    real(R4B), intent(out) :: mv
+    integer(I4B), dimension(:), allocatable, intent(inout) :: lay_act
+    integer(I4B), intent(out) :: nl_act
+    !
+    ! -- local
+    type(tVrt), pointer :: vrt => null()
+    type(tVrtArray), pointer :: laymod_vrta => null()
+    type(tVrtArray), pointer :: kh_vrta     => null()
+    character(len=MXSLEN) :: f
+    logical ::  lconst, lkhp
+    integer(I4B), dimension(:), allocatable :: i4wk
+    real(R4B), dimension(:,:), allocatable :: zp_all_wrk, zp_all, khp_all
+    real(R4B), dimension(:), allocatable :: r4wk
+    real(R4B) :: mvr4_read, top, bot, thk, r4const, frac
+    integer(I4B) :: ip, np, i_uscl, i_dscl, il, jl, kl, i, nl, nlay, nlay_extra
+! ------------------------------------------------------------------------------
+    ! up- and downscaling parameters
+    i_uscl = i_uscl_arith
+    i_dscl = i_dscl_nointp
+    !
+    np = size(x)
+    if ((np /= size(y)).or.(np /= size(cs))) then
+      call errmsg('tLayerModel_read_xy_ref: invalid dimensions.')
+    end if
+    !
+    if (allocated(zp)) deallocate(zp)
+    if (allocated(khp)) deallocate(khp)
+    !
+    if (this%compressed) then
+      call errmsg('tLayerModel_read_xy_ref: compressed not yet supported.')
+    else
+      allocate(zp_all_wrk(np,this%nlay+1))
+      !
+      laymod_vrta => this%laymod_vrta
+      do il = 1, this%nlay + 1
+        !
+        ! laymod
+        if (allocated(r4wk)) deallocate(r4wk)
+        allocate(r4wk(np))
+        call laymod_vrta%check_constant(il, lconst, r4const)
+        if (lconst) then
+          r4wk = r4const * laymod_vrta%mult_fac(il) + laymod_vrta%add_val(il)
+        else
+          vrt => laymod_vrta%get_vrt(il)
+          call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
+            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp, &
+            mfr8=laymod_vrta%mult_fac(il), avr8=laymod_vrta%add_val(il))
+        end if
+        zp_all_wrk(:,il) = r4wk
+        !
+        ! set the missing value
+        if (il == 1) then
+          mv = mvr4_read
+        end if
+        !
+        ! replace missing value
+        do ip = 1, np
+          if (zp_all_wrk(ip,il) == mvr4_read) then
+            zp_all_wrk(ip,il) = mv
+          end if
+        end do
+      end do
+      !
+      allocate(i4wk(this%nlay)); i4wk = 1
+      do i = 1, this%nlay_ref
+        il = this%lay_ref(1,i)
+        nl = this%lay_ref(2,i)
+        i4wk(il) = nl
+      end do
+      nlay = sum(i4wk)
+      !
+      allocate(zp_all(np,nlay+1))
+      if (allocated(lay_act)) deallocate(lay_act)
+      allocate(lay_act(nlay)); lay_act = 0
+      !
+      do ip = 1, np
+        kl = 0
+        do il = 1, this%nlay
+          top = zp_all_wrk(ip,il)
+          bot = zp_all_wrk(ip,il+1)
+          if ((top /= mv).and.(bot /= mv)) then
+            thk = top - bot
+          else
+            thk = mv
+          end if
+          nl = i4wk(il)
+          kl = kl + 1
+          zp_all(ip,kl) = top
+          if (abs(thk) > R4TINY) then
+            lay_act(kl) = 1
+          end if
+          do jl = 1, nl-1
+            kl = kl + 1
+            frac = real(jl,R4B)/real(nl,R4B)
+            if (thk /= mv) then
+              zp_all(ip,kl) = top - frac*thk
+              if (abs(thk) > R4TINY) then
+                lay_act(kl) = 1
+              end if
+            else
+              zp_all(ip,kl) = mv
+            end if
+          end do
+        end do
+        kl = kl + 1
+        zp_all(ip,kl) = bot
+      end do
+      !
+      ! cleanup
+      if (allocated(zp_all_wrk)) deallocate(zp_all_wrk)
+      if (allocated(i4wk))       deallocate(i4wk)
+      !
+      if (associated(this%kh_vrta)) then
+        lkhp = .true.
+        kh_vrta => this%kh_vrta
+        allocate(khp_all(np, nlay))
+      else
+        lkhp = .false.
+      end if
+      !
+      if (lkhp) then
+        do il = 1, nlay
+          if (allocated(r4wk)) deallocate(r4wk)
+          allocate(r4wk(np))
+          call kh_vrta%check_constant(il, lconst, r4const)
+          if (lconst) then
+            r4wk = r4const * kh_vrta%mult_fac(il) + kh_vrta%add_val(il)
+          else
+            vrt => kh_vrta%get_vrt(il)
+            call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
+              i_uscl=i_uscl_geom, i_dscl=i_dscl_nointp, &
+              mfr8=kh_vrta%mult_fac(il), avr8=kh_vrta%add_val(il))
+          end if
+          khp_all(:,il) = r4wk
+          !
+          ! replace missing value
+          do ip = 1, np
+            if (khp_all(ip,il) == mvr4_read) then
+              khp_all(ip,il) = mv
+            end if
+          end do
+        end do ! il = 1, nlay
+      end if
+      !
+      nl_act = 0
+      do il = 1, nlay
+        if (lay_act(il) > 0) then
+          nl_act = nl_act + 1
+          lay_act(il) = nl_act
+        end if
+      end do
+      if (nl_act == 0) then
+        call errmsg('tLayerModel_read_xy: no layers found.')
+      end if
+      !
+      ! fill for active layers only
+      allocate(zp(np,nl_act+1)); zp = mv
+      if (lkhp) then
+        allocate(khp(np,nl_act)); khp = mv
+      end if
+      !
+      do il = 1, this%nlay
+        jl = lay_act(il)
+        if (jl > 0) then
+          zp(:,jl)   = zp_all(:,il)
+          zp(:,jl+1) = zp_all(:,il+1)
+          if (lkhp) then
+            khp(:,jl) = khp_all(:,il)
+          end if
+        end if
+      end do
+      !
+      deallocate(zp_all)
+      if (allocated(khp_all)) deallocate(khp_all)
+    end if
+    !
+    return
+  end subroutine tLayerModel_read_xy_ref
+    
+  subroutine tLayerModel_read_extent_ref(this, bbx, zp, mv, lay_act, nl_act, mask)
+! ******************************************************************************
+!
+!    SPECIFICATIONS:
+! ------------------------------------------------------------------------------
+    ! -- dummy
+    class(tLayerModel) :: this
+    type(tBBX), intent(in) :: bbx
+    real(R4B), dimension(:,:,:), allocatable, intent(inout) :: zp
+    real(R4B), intent(out) :: mv
+    integer(I4B), dimension(:), allocatable, intent(inout) :: lay_act
+    integer(I4B), intent(out) :: nl_act
+    integer(I4B), dimension(:,:), intent(in) :: mask
+    !
     ! -- local
     type(tVrt), pointer :: vrt => null()
     type(tVrtArray), pointer :: vrta => null()
-    logical :: lconst
-    integer(I4B) :: il, it
-    real(R4B) :: r4const
+    character(len=MXSLEN) :: f
+    character(len=MXSLEN), dimension(:), allocatable :: f_bin
+    logical :: lfound, lconst
+    real(R4B) :: mvr4_read, thk, top, bot, r4const, frac
+    real(R4B), dimension(:,:), allocatable :: r4wk, top2d, bot2d, thk2d
+    real(R4B), dimension(:,:,:), allocatable :: zp_read, zp_read_wk
+    real(R8B) :: x, y
+    integer(I4B) :: il, jl, kl, i_uscl, i_dscl, nc, nr, mc, mr, ir, ic
+    integer(I4B) :: ntile, nl, i, nlay
+    integer(I4B), dimension(:), allocatable :: i4wk
 ! ------------------------------------------------------------------------------
+    ! up- and downscaling parameters
+    i_uscl = i_uscl_arith
+    i_dscl = i_dscl_nointp
     !
-    vrta => this%laymod_vrta
-    if (.not.associated(vrta)) then
-      return
-    end if
-    do il = 1, this%nlay + 1
-      call vrta%check_constant(il, lconst, r4const)
-      if (.not.lconst) then
-        vrt => vrta%get_vrt(il)
-        do it = 1, vrt%ntiles
-          call vrt%read_full_tile(itile=it, clean_hdrg=.false.)
+    nc = (bbx%xur - bbx%xll)/bbx%cs
+    nr = (bbx%yur - bbx%yll)/bbx%cs
+    !
+    if (allocated(zp)) deallocate(zp)
+    if (allocated(lay_act)) deallocate(lay_act)
+    !
+    if (this%compressed) then
+      call errmsg('tLayerModel_read_extent_ref: compressed is not yet supported.')
+    else
+      allocate(zp_read_wk(nc,nr,this%nlay+1))
+      vrta => this%laymod_vrta
+      !
+      do il = 1, this%nlay + 1
+        if (allocated(r4wk)) deallocate(r4wk)
+        allocate(r4wk(nc,nr))
+        call vrta%check_constant(il, lconst, r4const)
+        if (lconst) then
+          r4wk = r4const
+        else
+          vrt => vrta%get_vrt(il)
+          call vrt%read_extent(xr4=r4wk, mvr4=mvr4_read, bbx=bbx, &
+            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp, &
+            mfr8=vrta%mult_fac(il), avr8=vrta%add_val(il))
+          call vrt%clean_x()
+        end if
+        !
+        mc = size(r4wk,1); mr = size(r4wk,2)
+        if ((mc /= nc).or.(mr /= nr)) then
+          call errmsg('tLayerModel_read_extent_ref: inconsistent dimensions.')
+        end if
+        !
+        if (il == 1) then
+          mv = mvr4_read
+        else
+          ! replace missing value
+          do ir = 1, nr; do ic = 1, nc
+            if (r4wk(ic,ir) == mvr4_read) then
+              r4wk(ic,ir) = mv
+            end if
+          end do; end do
+        end if
+        !
+        zp_read_wk(:,:,il) = r4wk
+      end do
+      !
+      ! refine
+      allocate(i4wk(this%nlay)); i4wk = 1
+      do i = 1, this%nlay_ref
+        il = this%lay_ref(1,i)
+        nl = this%lay_ref(2,i)
+        i4wk(il) = nl
+      end do
+      nlay = sum(i4wk)
+      allocate(zp_read(nc,nr,nlay+1)); zp_read = mv
+      allocate(top2d(nc,nr), bot2d(nc,nr), thk2d(nc,nr))
+      kl = 0
+      do il = 1, this%nlay
+        top2d = zp_read_wk(:,:,il)
+        bot2d = zp_read_wk(:,:,il+1)
+        thk2d = mv
+        do ir = 1, nr; do ic = 1, nc
+          if ((top2d(ic,ir) /= mv).and.(bot2d(ic,ir) /= mv)) then
+            thk2d(ic,ir) = top2d(ic,ir) - bot2d(ic,ir)
+          end if
+        end do; end do
+        !
+        nl = i4wk(il)
+        kl = kl + 1
+        zp_read(:,:,kl) = top2d
+        do jl = 1, nl-1
+          kl = kl + 1
+          frac = real(jl,R4B)/real(nl,R4B)
+          do ir = 1, nr; do ic = 1, nc
+            if ((top2d(ic,ir) /= mv).and.(thk2d(ic,ir) /= mv)) then
+              zp_read(ic,ir,kl) = top2d(ic,ir) - frac*thk2d(ic,ir)
+            end if
+          end do; end do
         end do
-        vrt%full_data_read = .true.
+      end do
+      kl = kl + 1
+      zp_read(:,:,kl) = bot2d
+      !
+      ! determine the active number of layers
+      allocate(lay_act(nlay)); lay_act = 0
+      nl_act = 0
+      do il = 1, nlay
+        lfound = .false.
+        do ir = 1, nr
+          do ic = 1, nc
+            top = zp_read(ic,ir,il)
+            bot = zp_read(ic,ir,il+1)
+            if ((top /= mv).and.(bot /= mv)) then
+              thk = top - bot
+              if (abs(thk) > R4TINY) then
+                nl_act = nl_act + 1
+                lay_act(il) = nl_act
+                lfound = .true.
+              end if
+            end if
+            if (lfound) exit
+          end do
+          if (lfound) exit
+        end do
+      end do
+      !
+      if (nl_act == 0) then
+        call errmsg('tLayerModel_read_extent_ref: no layers found.')
       end if
-    end do
+      !
+      allocate(zp(nc,nr,nl_act+1))
+      do il = 1, nlay
+        jl = lay_act(il)
+        if (jl > 0) then
+          zp(:,:,jl)   = zp_read(:,:,il) !top
+          zp(:,:,jl+1) = zp_read(:,:,il+1) !bot
+        end if
+      end do
+      !
+      ! clean up
+      if (allocated(zp_read_wk)) deallocate(zp_read_wk)
+      if (allocated(zp_read)) deallocate(zp_read)
+      if (allocated(r4wk)) deallocate(r4wk)
+      if (allocated(i4wk)) deallocate(i4wk)
+    end if
+    !
+    ! check
+    do ir = 1, nr; do ic = 1, nc
+      top = zp(ic,ir,1)
+      do il = 2, nl_act + 1
+        !if ((ir==57).and.(ic==152).and.(il==30)) then
+        !  write(*,*) '@@@@'
+        !end if
+        bot = zp(ic,ir,il)
+        if ((top /= mv).and.(bot /= mv).and.(mask(ic,ir) == 1)) then
+          if (top < bot) then
+            call get_xy(x, y, ic, ir, bbx%xll, bbx%yur, bbx%cs)
+            write(*,'(a)') '('//ta((/x/))//','//ta((/y/))//'): top='//ta((/top/))//' bot='//ta((/bot/))
+            write(*,'(a)') 'il='//ta((/il/))//'ir='//ta((/ir/))//'ic='//ta((/ic/))
+            call errmsg('tLayerModel_read_extent_ref: inconsistent layer model')
+          end if
+        end if
+        top = bot
+      end do
+    end do; end do
     !
     return
-  end subroutine tLayerModel_read_full_grid
-   
-  subroutine tLayerModel_read_xy(this, x, y, cs, zp, khp, mv, lay_act, nl_act)
+  end subroutine tLayerModel_read_extent_ref
+
+subroutine tLayerModel_read_xy(this, x, y, cs, zp, khp, mv, lay_act, nl_act)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -2878,11 +3326,12 @@ module quad2dModule
         allocate(r4wk(np))
         call laymod_vrta%check_constant(il, lconst, r4const)
         if (lconst) then
-          r4wk = r4const
+          r4wk = r4const * laymod_vrta%mult_fac(il) + laymod_vrta%add_val(il)
         else
           vrt => laymod_vrta%get_vrt(il)
           call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
-            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp)
+            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp, &
+            mfr8=laymod_vrta%mult_fac(il), avr8=laymod_vrta%add_val(il))
         end if
         zp_all(:,il) = r4wk
         !
@@ -2897,11 +3346,12 @@ module quad2dModule
           allocate(r4wk(np))
           call kh_vrta%check_constant(il, lconst, r4const)
           if (lconst) then
-            r4wk = r4const
+            r4wk = r4const * kh_vrta%mult_fac(il) + kh_vrta%add_val(il)
           else
             vrt => kh_vrta%get_vrt(il)
             call vrt%read_xy(x=x, y=y, cs=cs, r4a=r4wk, mvr4=mvr4_read, &
-              i_uscl=i_uscl_geom, i_dscl=i_dscl_nointp)
+              i_uscl=i_uscl_geom, i_dscl=i_dscl_nointp, &
+              mfr8=kh_vrta%mult_fac(il), avr8=kh_vrta%add_val(il))
           end if
           khp_all(:,il) = r4wk
         end if
@@ -2973,7 +3423,7 @@ module quad2dModule
     return
   end subroutine tLayerModel_read_xy
     
-  subroutine tLayerModel_read_extent(this, bbx, zp, mv, lay_act, nl_act)
+  subroutine tLayerModel_read_extent(this, bbx, zp, mv, lay_act, nl_act, mask)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -2985,6 +3435,7 @@ module quad2dModule
     real(R4B), intent(out) :: mv
     integer(I4B), dimension(:), allocatable, intent(inout) :: lay_act
     integer(I4B), intent(out) :: nl_act
+    integer(I4B), dimension(:,:), intent(in) :: mask
     !
     ! -- local
     type(tVrt), pointer :: vrt => null()
@@ -2996,7 +3447,7 @@ module quad2dModule
     real(R4B), dimension(:), allocatable :: z_read
     real(R4B), dimension(:,:), allocatable :: r4wk
     real(R4B), dimension(:,:,:), allocatable :: zp_read
-    real(R8B) :: mvr8_read
+    real(R8B) :: mvr8_read, x, y
     real(R8B), dimension(:,:), allocatable :: r8wk
     integer(I4B) :: il, jl, i_uscl, i_dscl, nc, nr, mc, mr, ir, ic
     integer(I4B) :: ntile, it, nl, i
@@ -3144,7 +3595,8 @@ module quad2dModule
         else
           vrt => vrta%get_vrt(il)
           call vrt%read_extent(xr4=r4wk, mvr4=mvr4_read, bbx=bbx, &
-            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp)
+            i_uscl=i_uscl_arith, i_dscl=i_dscl_nointp, &
+            mfr8=vrta%mult_fac(il), avr8=vrta%add_val(il))
           call vrt%clean_x()
         end if
         !
@@ -3212,8 +3664,10 @@ module quad2dModule
       top = zp(ic,ir,1)
       do il = 2, nl_act + 1
         bot = zp(ic,ir,il)
-        if ((top /= mv).and.(bot /= mv)) then
+        if ((top /= mv).and.(bot /= mv).and.(mask(ic,ir) == 1)) then
           if (top < bot) then
+            call get_xy(x, y, ic, ir, bbx%xll, bbx%yur, bbx%cs)
+            write(*,'(a)') '('//ta((/x/))//','//ta((/y/))//'): top='//ta((/top/))//' bot='//ta((/bot/))
             call errmsg('tLayerModel_read: inconsistent layer model')
           end if
         end if
@@ -3223,7 +3677,7 @@ module quad2dModule
     !
     return
   end subroutine tLayerModel_read_extent
-    
+  
 ! ==============================================================================
 ! ==============================================================================
 ! tLookupTable
@@ -5588,7 +6042,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     real(R4B), intent(in) :: minkd
     character(len=*), optional :: f_out_csv
     ! -- local
-    logical :: read_all_lm = .false.
+    !logical :: read_all_lm = .false.
     integer(I4B), parameter :: perc_intv = 10
     !
     type(tBb) :: bbi
@@ -5627,12 +6081,12 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     end if
     !
     ! read all the layers models
-    if (read_all_lm) then
-      do lm = 1, this%lay_mods%n_inp_mod
-        lay_mod => this%lay_mods%lay_mods(lm)
-        call lay_mod%read_full_grid()
-      end do
-    end if
+    !if (read_all_lm) then
+    !  do lm = 1, this%lay_mods%n_inp_mod
+    !    lay_mod => this%lay_mods%lay_mods(lm)
+    !    call lay_mod%read_full_grid()
+    !  end do
+    !end if
     !
     ! determine the number of active quads
     q_nact_delta = max(1,int(real(this%n_act,R4B)/perc_intv,I4B))
@@ -5736,10 +6190,14 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
         call q%get_prop_csv(ikey=i_lay_mod, cv=clm)
         lay_mod => q%lay_mods%get_lm_ptr(clm)
         !lay_mod => q%lay_mods%lay_mods(lm)
-        call lay_mod%read_xy(x, y, cs, zp, khp, mv, nl_act, nl)
+        if (lay_mod%nlay_ref > 0) then
+          call lay_mod%read_xy_ref(x, y, cs, zp, khp, mv, nl_act, nl)
+        else
+          call lay_mod%read_xy(x, y, cs, zp, khp, mv, nl_act, nl)
+        end if
         if (allocated(lay_act)) deallocate(lay_act)
         allocate(lay_act(nl)) 
-        do il = 1, lay_mod%nlay
+        do il = 1, size(nl_act)
           i = nl_act(il)
           if (i > 0) lay_act(i) = il
         end do
@@ -5776,7 +6234,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
             call vintf%init(lm=lay_mod%idx, nlay_act=nl, n_cells=nintf%n_cells)
             !
             nl_intf = 0
-            do il = 1, lay_mod%nlay
+            do il = 1, size(nl_act)
               i = nl_act(il)
               if (i > 0) then
                 nl_intf = nl_intf + 1
@@ -6044,7 +6502,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
   !
   subroutine tQuads_write_mf6_grid(this, lid0, lid1, &
     kper_beg, kper_end, budget_flf_layer, tile_nc, tile_nr, &
-    f_vrt_pref, write_nod_map, &
+    f_vrt_pref, write_nod_map, filter_sat, &
     vtk_lid, f_lay_mod_output_csv, f_in_csv_merge)
 ! ******************************************************************************
 !
@@ -6061,6 +6519,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     integer(I4B), intent(in) :: tile_nr
     character(len=*), intent(in) :: f_vrt_pref
     logical, intent(in) :: write_nod_map
+    logical, intent(in) :: filter_sat
     character(len=*), intent(in) :: vtk_lid
     character(len=*), intent(in) :: f_lay_mod_output_csv
     character(len=*), intent(in), optional :: f_in_csv_merge
@@ -6098,7 +6557,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     character(len=MXSLEN), dimension(:), allocatable :: f_tile_nodmap, mv_tile_nodmap, f_vtu, lab_vtu
     character(len=MXSLEN) :: f, d, f_csv_dat, vtk_csv, clm, s
     character(len=MXSLENLONG) :: s_long
-    real(R8B), dimension(:,:), allocatable :: vtk_xc, vtk_x
+    real(R8B), dimension(:,:), allocatable :: vtk_xc, vtk_x, sat
     real(R8B), dimension(:), allocatable :: vtk_cs, vtk_dz
     real(R4B), dimension(:,:), allocatable :: xr4_q, xr4_t, vtk_var
     real(R8B), dimension(:), allocatable :: node_area
@@ -6521,12 +6980,31 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
               ir = csv_out%get_row(key_val=clm, hdr_key='id')
               call csv_out%get_val(ir=ir, ic=csv_out%get_col('output_layer'), i4v=il)
               !
+              if (filter_sat) then
+                if (merge) then
+                  call errmsg('tQuads_write_mf6_grid: merge for saturation filtering not yet supported.')
+                else
+                  if (allocated(sat)) deallocate(sat)
+                  call q%grid_init(read_iajaihc=.true.)
+                  call q%get_prop_csv(ikey=i_budget, cv=f); call swap_slash(f)
+                  allocate(post)
+                  call post%init(f, kper, kper, q%disu%nodes)
+                  call post%read_saturation(size(q%disu%ja), sat)
+                  call post%clean()
+                  deallocate(post)
+                end if
+              end if
+              !
               if (write_budget) then
                 if (merge) then
                   call errmsg('tQuads_write_mf6_grid: merge for budgets not yet supported.')
                 else
                   flf_layer = budget_flf_layer
-                  call q%get_nod_map(flf_layer, nodmap_q, nodes, clean_disu=.false., read_iajaihc=.true.)
+                  if (filter_sat) then
+                    call q%get_nod_map(flf_layer, nodmap_q, nodes, clean_disu=.false., read_iajaihc=.true., sat=sat(1,:))
+                  else
+                    call q%get_nod_map(flf_layer, nodmap_q, nodes, clean_disu=.false., read_iajaihc=.true.)
+                  end if
                 end if
               else
                 if (merge) then
@@ -6544,7 +7022,11 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                   call csv%get_val(ir=im, ic=csv%get_col('csv_dat'), cv=f)
                   call q%get_nod_map(il, nodmap_q, nodes, f, nodes_offset)
                 else
-                  call q%get_nod_map(il, nodmap_q, nodes)
+                  if (filter_sat) then
+                    call q%get_nod_map(il, nodmap_q, nodes, sat=sat(1,:))
+                  else
+                    call q%get_nod_map(il, nodmap_q, nodes)
+                  end if
                 end if
               end if
               !
@@ -6766,7 +7248,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
   end subroutine tQuads_write_mf6_grid
   
   subroutine tQuads_write_mf6_point(this, f_in_point_csv, kper_beg, &
-    kper_end, f_out_point_csv)
+    kper_end, f_out_point_csv, filter_sat)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -6777,6 +7259,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     integer(I4B), intent(in) :: kper_beg
     integer(I4B), intent(in) :: kper_end
     character(len=*), intent(in) :: f_out_point_csv
+    logical, intent(in) :: filter_sat
     ! -- local
     type(tPostMod), pointer :: post => null()
     type(tQuad), pointer :: q => null()
@@ -6785,17 +7268,18 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     type(tCSV), pointer :: csv_in => null(), csv_out => null()
     type(tMF6Disu), pointer :: disu => null()
     !
-    integer(I4B), dimension(:), allocatable :: layer_arr, lid_arr, nodes_read, x_active
+    integer(I4B), dimension(:), allocatable :: layer_arr, lid_arr, x_active
     integer(I4B), dimension(:), allocatable :: xmap, hdr_i_type, kper_arr
+    integer(I4B), dimension(:,:), allocatable :: nodes_read
     real(R8B), dimension(:), allocatable :: r8w
-    real(R8B), dimension(:,:), allocatable :: x_arr, heads_read, heads_out
+    real(R8B), dimension(:,:), allocatable :: x_arr, heads_read, heads_out, sat
     real(R8B), dimension(2,1) :: xy
     character(len=MXSLEN), dimension(:), allocatable :: hdr_keys
     !
     character(len=MXSLEN) :: f, s, id
-    logical :: lflag, layer_found, lfound, llayer, lz, lnod
+    logical :: lflag, layer_found, lfound, llayer, lz, lnod, lpointinbb, lskip_point
     integer(I4B) :: nx, mx, lid, lid_read, ix, jx, ic, ir, il, jl, ilay, jlay, nod, n, i, nx_active
-    integer(I4B) :: kper, nper, il_min, il_max, il_top, il_bot
+    integer(I4B) :: iper, kper, nper, il_min, il_max, il_top, il_bot, il_found
     real(R8B) :: z, top, bot
 ! ------------------------------------------------------------------------------
 
@@ -6836,16 +7320,6 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
       end if
     end do
     !
-    ! add columns
-    call csv_in%add_key('lid')
-    call csv_in%add_key('nod')
-    call csv_in%add_key('ilay')
-    do ix = 1, nx
-      call csv_in%set_val_by_key(key='lid', ir=ix, i4v=0)
-      call csv_in%set_val_by_key(key='nod', ir=ix, i4v=0)
-      call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=0)
-    end do
-    !
     nper = kper_end - kper_beg + 1
     allocate(kper_arr(nper))
     nper = 0
@@ -6854,6 +7328,23 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
       kper_arr(nper) = kper
     end do
     allocate(heads_out(nx,nper)); heads_out = R8MV
+    !
+    ! add columns
+    call csv_in%add_key('lid')
+    call csv_in%add_key('ilay')
+    do iper = 1, nper
+      s = 'nod_' // ta((/iper/), "(i0.6)")
+      call csv_in%add_key(s)
+    end do
+    !
+    do ix = 1, nx
+      call csv_in%set_val_by_key(key='lid', ir=ix, i4v=0)
+      do iper = 1, nper
+        s = 'nod_' // ta((/iper/), "(i0.6)")
+        call csv_in%set_val_by_key(key=s, ir=ix, i4v=0)
+      end do
+      call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=0)
+    end do
     !
     ! loop over the submodels
     do lid = 1, this%n
@@ -6872,112 +7363,165 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
         !
         ! second check (detailed):
         if (lflag) then
-          call q%grid_init()
+          if (filter_sat) then
+            call q%grid_init(read_iajaihc=.true.)
+          else
+            call q%grid_init()
+          end if
           call q%get_bb(child_bbi=bbi)
           disu => q%disu
-          mx = 0
+          !
+          lpointinbb = .false.
           do ix = 1, nx
             if (point_in_bb(xy, bbx)) then
-              call get_icr(ic, ir, x_arr(1,ix), x_arr(2,ix), bbx%xll, bbx%yur, bbx%cs)
-              if (.not.valid_icr(ic, ir, bbi%ncol, bbi%nrow)) then
-                cycle
+              lpointinbb = .true.
+              exit
+            end if
+          end do
+          !
+          nper = 0
+          x_active = 0
+          do kper = kper_beg, kper_end
+            nper = nper + 1
+            if (lpointinbb) then
+              if (allocated(sat)) deallocate(sat)
+              if (filter_sat) then
+                call q%get_prop_csv(ikey=i_budget, cv=f); call swap_slash(f)
+                allocate(post)
+                call post%init(f, kper, kper, q%disu%nodes)
+                call post%read_saturation(size(q%disu%ja), sat)
+                call post%clean()
+                deallocate(post)
+              else
+                allocate(sat(1,q%disu%nodes))
+                sat = R8ONE
               end if
-              if ( (minval(abs(disu%grid_x_nod(ic,ir,:))) == 0).and. &
-                   (maxval(abs(disu%grid_x_nod(ic,ir,:))) == 0)) then
-                cycle
-              end if
-              !
-              ! find the layer number
-              ilay = layer_arr(ix)
-              layer_found = .false.
-              select case(ilay)
-              case(1:) ! fixed input layer
-                do jl = 1, disu%nlay_act
-                  if (ilay == disu%lay_act(jl)) then
-                    il_min = jl
-                    il_max = jl
-                    layer_found = .true.
-                  end if
-                end do
-                if (.not.layer_found) then
-                  call csv_in%get_val(ir=ix, key='id', cv=id)
-                  call logmsg('Warning: specified layer not found for id '//trim(id)//'!')
+             !
+              mx = 0
+              do ix = 1, nx
+                lskip_point = .false.
+                call get_icr(ic, ir, x_arr(1,ix), x_arr(2,ix), bbx%xll, bbx%yur, bbx%cs)
+                if (.not.valid_icr(ic, ir, bbi%ncol, bbi%nrow)) then
+                  lskip_point = .true.
+                  cycle
                 end if
-              case(-1) ! automatic top layer
-                il_min = 1
-                il_max = disu%nlay_act
-                layer_found = .true.
-              case(0) ! z-coordinate
-                z = x_arr(3,ix)
-                il_top = disu%nlay_act; il_bot = 1
-                lnod = .false.
+                if ( (minval(abs(disu%grid_x_nod(ic,ir,:))) == 0).and. &
+                     (maxval(abs(disu%grid_x_nod(ic,ir,:))) == 0)) then
+                  lskip_point = .true.
+                  cycle
+                end if
+                !
+                lskip_point = .true.
                 do jl = 1, disu%nlay_act
                   nod = abs(disu%grid_x_nod(ic,ir,jl))
-                  if (nod > 0) then
-                    lnod = .true.
-                    il_top = min(jl, il_top)
-                    il_bot = max(jl, il_bot)
-                    
-                    top = disu%top(nod); bot = disu%bot(nod)
-                    if (top /= bot) then
-                      if ((top >= z).and.(bot <= z)) then
-                       il = jl
-                       layer_found = .true.
-                      end if
-                    end if
-                  end if
-                  if (layer_found) exit
-                end do
-                !
-                if ((.not.layer_found).and.lnod) then
-                  nod = abs(disu%grid_x_nod(ic,ir,il_top))
-                  if (nod > 0) then
-                     top = disu%top(nod)
-                     if (z >= top) then
-                       il = il_top
-                       layer_found = .true.
-                     end if
-                  end if
-                end if
-                if ((.not.layer_found).and.lnod) then
-                  nod = abs(disu%grid_x_nod(ic,ir,il_bot))
-                  if (nod > 0) then
-                     bot = disu%bot(nod)
-                     if (z <= bot) then
-                       il = il_bot
-                       layer_found = .true.
-                     end if
-                  end if
-                end if
-                if (layer_found) then
-                  il_min = il
-                  il_max = il
-                end if
-              case default
-                call errmsg('tQuads_write_mf6_grid_point')
-              end select
-              !
-              if (layer_found) then
-                do il = il_min, il_max
-                  nod = abs(disu%grid_x_nod(ic,ir,il))
-                  ilay = disu%lay_act(il)
-                  if (nod > 0) then
-                    call csv_in%get_val(ir=ix, key='nod', i4v=n)
-                    if (n == 0) then
-                      mx = mx + 1
-                      x_active(ix) = 1
-                      call csv_in%set_val_by_key(key='lid', ir=ix, i4v=lid)
-                      call csv_in%set_val_by_key(key='nod', ir=ix, i4v=nod)
-                      call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=ilay)
-                    else
-                      call errmsg('tQuads_write_mf6_grid_point: double nodes!')
-                    end if
+                  if (nod /= 0) then
+                    lskip_point = .false.
                     exit
                   end if
                 end do
-              end if
+                !
+                if (lskip_point) then
+                  cycle
+                end if
+                !
+                ! find the layer number
+                ilay = layer_arr(ix)
+                layer_found = .false.
+                il_found = 0
+                select case(ilay)
+                case(1:) ! fixed input layer
+                  do jl = 1, disu%nlay_act
+                    if (ilay == disu%lay_act(jl)) then
+                      nod = abs(disu%grid_x_nod(ic,ir,jl))
+                      if (sat(1,nod) == R8ONE) then
+                        layer_found = .true.
+                        il_found = jl
+                      else
+                        layer_found = .false.
+                      end if
+                    end if
+                  end do
+                case(-1) ! automatic top layer
+                  do jl = 1, disu%nlay_act
+                    nod = abs(disu%grid_x_nod(ic,ir,jl))
+                    if (nod > 0) then
+                      if (sat(1,nod) == R8ONE) then
+                        layer_found = .true.
+                        il_found = jl
+                        exit
+                      end if
+                    end if
+                  end do
+                case(0) ! z-coordinate
+                  z = x_arr(3,ix)
+                  il_top = disu%nlay_act; il_bot = 1
+                  lnod   = .false.
+                  do jl = 1, disu%nlay_act
+                    nod = abs(disu%grid_x_nod(ic,ir,jl))
+                    if (nod > 0) then
+                      if (sat(1,nod) == R8ONE) then
+                        lnod = .true.
+                        il_top = min(jl, il_top)
+                        il_bot = max(jl, il_bot)
+                        top = disu%top(nod); bot = disu%bot(nod)
+                        if (top /= bot) then
+                          if ((top >= z).and.(bot <= z)) then
+                           il_found = jl
+                           layer_found = .true.
+                          end if
+                        end if
+                      end if
+                    end if
+                    if (layer_found) exit
+                  end do
+                  !
+                  if ((.not.layer_found).and.lnod) then
+                    nod = abs(disu%grid_x_nod(ic,ir,il_top))
+                    if (nod > 0) then
+                       top = disu%top(nod)
+                       if (z >= top) then
+                         il_found = il_top
+                         layer_found = .true.
+                       end if
+                    end if
+                  end if
+                  if ((.not.layer_found).and.lnod) then
+                    nod = abs(disu%grid_x_nod(ic,ir,il_bot))
+                    if (nod > 0) then
+                       bot = disu%bot(nod)
+                       if (z <= bot) then
+                         il_found = il_bot
+                         layer_found = .true.
+                       end if
+                    end if
+                  end if
+                case default
+                  call errmsg('tQuads_write_mf6_grid_point')
+                end select
+                !
+                if (.not.layer_found) then
+                  call csv_in%get_val(ir=ix, key='id', cv=id)
+                  call errmsg('Error: specified layer not found for id '//trim(id)//'!')
+                end if
+                !
+                if (layer_found) then
+                  nod = abs(disu%grid_x_nod(ic,ir,il_found))
+                  ilay = disu%lay_act(il_found)
+                  s = 'nod_' // ta((/nper/), "(i0.6)")
+                  call csv_in%get_val(ir=ix, key=s, i4v=n)
+                  if (n == 0) then
+                    mx = mx + 1
+                    x_active(ix) = 1
+                    call csv_in%set_val_by_key(key='lid', ir=ix, i4v=lid)
+                    call csv_in%set_val_by_key(key=s, ir=ix, i4v=nod)
+                    call csv_in%set_val_by_key(key='ilay', ir=ix, i4v=ilay)
+                  else
+                    call errmsg('tQuads_write_mf6_grid_point: double nodes!')
+                  end if
+                end if
+              end do !points
             end if
-          end do !points
+          end do ! nper
           !
           if (mx > 0) then
             call logmsg('# point(s) found for lid '//ta((/lid/))//': '//ta((/mx/)))
@@ -6986,15 +7530,18 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
             if (allocated(xmap)) deallocate(xmap)
             if (allocated(nodes_read)) deallocate(nodes_read)
             if (allocated(heads_read)) deallocate(heads_read)
-            allocate(xmap(mx), nodes_read(mx), heads_read(nper, mx)); heads_read = R8MV
+            allocate(xmap(mx), nodes_read(nper, mx), heads_read(nper, mx)); heads_read = R8MV
             mx = 0
             do ix = 1, nx
               call csv_in%get_val(ir=ix, key='lid', i4v=lid_read)
               if (lid_read == lid) then
                 mx = mx + 1
                 xmap(mx) = ix
-                call csv_in%get_val(ir=ix, key='nod', i4v=nod)
-                nodes_read(mx) = nod
+                do iper = 1, nper
+                  s = 'nod_' // ta((/iper/), "(i0.6)")
+                  call csv_in%get_val(ir=ix, key=s, i4v=nod)
+                  nodes_read(iper, mx) = nod
+                end do
               end if
             end do
             !
@@ -7013,7 +7560,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
           !
         end if
       end if
-    end do
+    end do !lid
     !
     nx_active = 0
     do ix = 1, nx
@@ -7082,7 +7629,8 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     character(len=MXSLEN) :: f, f_bin, id
     logical :: LDUM, found
     integer(I4B), dimension(:), pointer :: m1_nodes => null()
-    integer(I4B), dimension(:), allocatable :: nodes_flag, nodes_read
+    integer(I4B), dimension(:), allocatable :: nodes_flag
+    integer(I4B), dimension(:,:), allocatable :: nodes_read
     integer(I4B) :: lid, nper, iper, kper, inbr, jnbr, i, nod, n
     real(R8B), dimension(:,:), allocatable :: heads_read
 ! ------------------------------------------------------------------------------
@@ -7154,12 +7702,12 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
         n = sum(nodes_flag)
         if (n > 0) then
           if (allocated(nodes_read)) deallocate(nodes_read)
-          allocate(nodes_read(n), heads_read(nper,n))
+          allocate(nodes_read(1, n), heads_read(nper, n))
           n = 0
           do i = 1, disu%nodes
             if (nodes_flag(i) == 1) then
               n = n + 1
-              nodes_read(n) = i
+              nodes_read(1,n) = i
             end if
           end do
           !
@@ -7171,7 +7719,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
             kper = post%kper_map(iper)
             id = 'head_bnd_sp'//ta([kper],'(i3.3)')
             f_bin = trim(q%mod_dir)//'\'//trim(id)//'.bin'
-            call wbd%write_list(id=id, i4a1=nodes_read, r8a1=heads_read(iper,:), f_bin=f_bin)
+            call wbd%write_list(id=id, i4a1=nodes_read(1,:), r8a1=heads_read(iper,:), f_bin=f_bin)
           end do
           call wbd%write_csv()
           !
@@ -9622,7 +10170,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
   end function tQuad_check_gid_mask
 !  
   subroutine tQuad_get_nod_map(this, il, nod_map, nodes, f_csv_dat, nodes_offset, &
-    clean_disu, read_iajaihc)
+    clean_disu, read_iajaihc, sat)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -9636,11 +10184,13 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     integer(I4B), optional :: nodes_offset
     logical, optional, intent(in) :: clean_disu
     logical, optional, intent(in) :: read_iajaihc
+    real(R8B), dimension(:), optional, intent(in) :: sat
     ! -- local
     type(tMF6Disu), pointer :: disu => null()
     type(tBB) :: bbi
     integer(I4B) :: jl, ir, ic, n, nc, nr
     logical :: lclean, liajaihc
+    real(R8B), dimension(:), allocatable :: fsat
 ! ------------------------------------------------------------------------------
     if (present(clean_disu)) then
       lclean = clean_disu
@@ -9653,7 +10203,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     else 
       liajaihc = .false.
     end if
-    
+    !
     ! read the grid data
     if (present(f_csv_dat)) then
       call this%grid_init(f_csv_dat, id_pref='_'//trim(ta([this%lid])), read_iajaihc=liajaihc)
@@ -9663,12 +10213,23 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     !
     disu => this%disu
     nodes = disu%nodes
+    !
+    allocate(fsat(nodes))
+    if (present(sat)) then
+      if (size(sat) /= nodes) then
+        call errmsg('tQuad_get_nod_map: invalid dimension saturation vector.')
+      end if
+      fsat = sat
+    else
+      fsat = R8ONE
+    end if
+    !
     call this%get_bb(child_bbi=bbi)
     !
     if (allocated(nod_map)) deallocate(nod_map)
     !
     if (il == 0) then
-      call disu%x_to_top_nodes_grid(nod_map)
+      call disu%x_to_top_nodes_grid(nod_map, fsat)
     else
       do jl = 1, disu%nlay_act
         if (il == disu%lay_act(jl)) then
@@ -9676,6 +10237,16 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
           allocate(nod_map, source=disu%grid_x_nod(:,:,jl))
           exit
         end if
+      end do
+      !
+      ! filter for saturation
+      do ir = 1, size(nod_map,2)
+        do ic = 1, size(nod_map,1)
+          n = nod_map(ic,ir)
+          if (fsat(n) < R8ONE) then
+            nod_map(ic,ir) = 0
+          end if
+        end do
       end do
     end if
     !
@@ -9702,6 +10273,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     if (lclean) then
       call disu%clean(); deallocate(this%disu); this%disu => null()
     end if
+    if (allocated(fsat)) deallocate(fsat)
     !
     return
   end subroutine tQuad_get_nod_map
@@ -11200,7 +11772,11 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     if (cs_min_tgt < bbx_gid%cs) then
       bbx_read%cs = cs_min_tgt
     end if
-    call lay_mod%read_extent(bbx_read, zp, mv, lay_act, nl_act)
+    if (lay_mod%nlay_ref > 0) then
+      call lay_mod%read_extent_ref(bbx_read, zp, mv, lay_act, nl_act, mask)
+    else
+      call lay_mod%read_extent(bbx_read, zp, mv, lay_act, nl_act, mask)
+    end if
     !
     if (allocated(lay_out)) deallocate(lay_out)
     allocate(lay_out(nl_act))
@@ -11841,7 +12417,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     call this%get_prop_csv(ikey=i_lay_mod, cv=clm)
     lay_mod => this%lay_mods%get_lm_ptr(clm)
     !lay_mod => this%lay_mods%lay_mods(lm)
-    disu%nlay = lay_mod%nlay
+    disu%nlay = lay_mod%get_nlay()
     call this%get_prop_csv(key='ngrid_lev', i4v=disu%ngrid)
     !
     call parse_line(s, sa, token_in=';')
@@ -12105,12 +12681,12 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
       if (dat%i_type == i_vrt) then
         call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
           i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
-          mfr8=dat%mult_fac)
+          mfr8=dat%mult_fac, avr8=dat%add_val)
       end if
       if (dat%i_type == i_const) then
         call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
           i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
-          mfr8=dat%mult_fac, r8const=dat%r8const)
+          mfr8=dat%mult_fac, avr8=dat%add_val, r8const=dat%r8const)
       end if
       ! resistance --> conductance
       if (dat%i_uscl == i_uscl_sumcdr_cinp) then
@@ -12404,7 +12980,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
       if (dat%i_type == i_vrt) then
         call vrt_read_extent_mg(vrt=dat%vrt, bbx=bbx, csa=cs_read, &
           i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, mg=mg, mvr4=mvr4, &
-          mfr8=dat%mult_fac)
+          mfr8=dat%mult_fac, avr8=dat%add_val)
       else if (dat%i_type == i_const) then
         mga_read%lconst = .true.
         mga_read%r8const = dat%r8const
@@ -12499,7 +13075,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
           if (.not.lconst) then
             call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
               i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false., &
-              mfr8=dat%mult_fac)
+              mfr8=dat%mult_fac, avr8=dat%add_val)
           end if
           do ir = 1, g%nr; do ic = 1, g%nc
             n = abs(g%xi4(ic,ir))
@@ -12590,7 +13166,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
             if (.not.lconst) then
               call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
                 i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false., &
-                mfr8=dat%mult_fac)
+                mfr8=dat%mult_fac, avr8=dat%add_val)
             end if
             do i = 1, g%n_int_mv
               ic = g%icir_int_mv(1,i); ir = g%icir_int_mv(2,i)
@@ -12707,7 +13283,9 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                   mp = mp + 1
                   if (iact == 2) then
                     i4a(mp) = n
-                    r8a(mp) = real(csv_v(ip),R8B) * dat%mult_fac ! apply factor
+                    r8a(mp) = real(csv_v(ip), R8B)
+                    r8a(mp) = r8a(mp) * dat%mult_fac ! apply factor
+                    r8a(mp) = r8a(mp) + dat%add_val ! add value
                   end if
                 end if
               end do
@@ -12803,7 +13381,8 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                     g => mg%grid(ig)
                     if (.not.lconst) then
                       call vrt%read_extent(xr4=r4x, mvr4=mvr4, bbx=g%bbx, &
-                        i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false.)
+                        i_uscl=dat%i_uscl, i_dscl=dat%i_dscl, clean_tile=.false., &
+                        mfr8=vrta%mult_fac(il), avr8=vrta%add_val(il))
                     end if
                     do ir = 1, g%nr; do ic = 1, g%nc
                       n = abs(g%xi4(ic,ir))
@@ -12865,7 +13444,9 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                 if (iact == 2) then
                   i4a(n) = nod2d(i,il)
                   ip = mapping(i)
-                  r8a(n) = real(f,R8B) * real(csv_v(ip),R8B) * dat%mult_fac
+                  r8a(n) = real(f, R8B) * real(csv_v(ip), R8B)
+                  r8a(n) = r8a(n) * dat%mult_fac ! apply factor
+                  r8a(n) = r8a(n) + dat%add_val ! add value
                 end if
               end if
             end if
@@ -12960,7 +13541,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
   end function calc_frac
   
   subroutine vrt_read_extent_mg(vrt, bbx, csa, i_uscl, i_dscl, mg, &
-    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, mfr8, r8const)
+    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, mfr8, avr8, r8const)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -12982,6 +13563,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     real(R8B),    intent(out), optional :: mvr8
     !
     real(R8B),    intent(in), optional  :: mfr8
+    real(R8B),    intent(in), optional  :: avr8
     real(R8B),    intent(in), optional  :: r8const
     !
     ! -- local
@@ -12989,13 +13571,18 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     type(tGrid), pointer :: g   => null()
     
     integer(I4B) :: ngrid, n, ig
-    real(R8B) :: mfr8_loc
+    real(R8B) :: mfr8_loc, avr8_loc
     logical :: lconst
 ! ------------------------------------------------------------------------------
     if (present(mfr8)) then
       mfr8_loc = mfr8
     else
       mfr8_loc = R8ONE
+    end if
+    if (present(avr8)) then
+      avr8_loc = avr8
+    else
+      avr8_loc = R8ZERO
     end if
     !
     if (present(r8const)) then
@@ -13028,18 +13615,20 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
       if (g%i_data_type == i_r4) then
         if (.not.lconst) then
           call vrt%read_extent(xr4=g%xr4, mvr4=g%mvr4, bbx=g%bbx, &
-            i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false., mfr8=mfr8_loc)
+            i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false., &
+            mfr8=mfr8_loc, avr8=avr8_loc)
         else
-          g%xr4 = real(r8const*mfr8_loc, r4B)
+          g%xr4 = real(r8const*mfr8_loc + avr8_loc, r4B)
           g%mvr4 = g%xr4(1,1) + R4ONE
         end if
         mvr4 = g%mvr4
       else
         if (.not.lconst) then
           call vrt%read_extent(xr8=g%xr8, mvr8=g%mvr8, bbx=g%bbx, &
-            i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false., mfr8=mfr8_loc)
+            i_uscl=i_uscl, i_dscl=i_dscl, clean_tile=.false., &
+            mfr8=mfr8_loc, avr8=avr8_loc)
         else
-          g%xr8 = r8const*mfr8_loc
+          g%xr8 = r8const*mfr8_loc + avr8_loc
           g%mvr8 = g%xr8(1,1) + R8ONE
         end if
         mvr8 = g%mvr8

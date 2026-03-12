@@ -22,6 +22,7 @@ module mf6_post_module
     procedure :: read_ulasav            => mf6_post_mod_read_ulasav
     procedure :: read_ulasav_selection  => mf6_post_mod_read_ulasav_selection
     procedure :: read_budget            => mf6_post_mod_read_budget
+    procedure :: read_saturation        => mf6_post_mod_read_saturation
     generic   :: get_grid               => mf6_get_r4grid
     procedure :: mf6_get_r4grid
   end type tPostMod
@@ -217,7 +218,8 @@ module mf6_post_module
       if (adjustl(text_in) /= 'FLOW-JA-FACE') then
         select case(imeth_in)
         case(1)
-          p = p + R8B*nja
+          !p = p + R8B*nja
+          p = p + R8B*abs(ndim1_in*ndim2_in*ndim3_in)
         case(6)
           read(unit=iu,iostat=ios, pos=p) txt1id1_in; p = p + 16
           read(unit=iu,iostat=ios, pos=p) txt2id1_in; p = p + 16
@@ -290,11 +292,137 @@ module mf6_post_module
     return
   end subroutine mf6_post_mod_read_budget
   
+  subroutine mf6_post_mod_read_saturation(this, nja, sat)
+! ******************************************************************************
+    ! -- arguments
+    class(tPostMod) :: this
+    integer(I4B), intent(in) :: nja
+    real(R8B), dimension(:,:), allocatable, intent(out) :: sat
+    !
+    ! --- local
+    ! mf6 header:
+    character(len=16) :: text_in, txt1id1_in, txt2id1_in, txt1id2_in, txt2id2_in
+    character(len=16), dimension(:), allocatable :: auxtxt_in
+    integer(I4B) :: kstp_in, kper_in, ndim1_in, ndim2_in, ndim3_in
+    integer(I4B) :: imeth_in, ndat_in, nlist_in
+    integer(I4B), dimension(:), allocatable :: id1_in, id2_in
+    real(R8B) :: delt_in, pertim_in, totim_in
+    real(R8B), dimension(:,:), allocatable :: data2d_in
+    
+    integer(I8B), parameter :: NBHDR1 = I4B + I4B + 16  + I4B + I4B + I4B
+    integer(I8B), parameter :: NBHDR2 = I4B + R8B + R8B + R8B
+    !
+    logical :: lop, lread_all, lupdatep
+    integer(I4B) :: iu, ios, i, j, iper, kper_beg, kper_end
+    integer(I4B) :: n, m
+    integer(I8B) :: p
+! ------------------------------------------------------------------------------
+    !
+    if (allocated(sat)) deallocate(sat)
+    allocate(sat, source=this%xr8_read)
+    !
+    call this%set_kper_map()
+    !
+    call open_file(this%f, iu, 'r', .true.)
+    p = 1
+    do while(.true.) 
+      ! record 1:
+      read(unit=iu,iostat=ios, pos=p) kstp_in, kper_in, &
+        text_in, ndim1_in, ndim2_in, ndim3_in
+      
+      if (ios /= 0) then
+        exit
+      end if
+      
+      p = p + NBHDR1
+      ! record 2:
+      read(unit=iu,iostat=ios, pos=p) imeth_in, delt_in, pertim_in, totim_in
+      p = p + NBHDR2
+      !
+      if (adjustl(text_in) /= 'DATA-SAT') then
+        select case(imeth_in)
+        case(1)
+          p = p + R8B*abs(ndim1_in*ndim2_in*ndim3_in)
+        case(6)
+          p = p + 4*16
+          read(unit=iu,iostat=ios, pos=p) ndat_in
+          p = p + I4B + 16 * (ndat_in - 1)
+          read(unit=iu,iostat=ios, pos=p) nlist_in
+          p = p + I4B + (I4B + I4B + R8B * ndat_in) * nlist_in
+        case default
+          call errmsg('mf6_post_mod_read_saturation: non supported IMETH')
+        end select
+        cycle
+      end if
+      
+      ! additional checks
+      if (imeth_in /= 6) then
+        call errmsg('mf6_post_mod_read_saturation: non supported IMETH.')
+      end if
+      if (ndim1_in /= this%nodes) then
+        call errmsg('mf6_post_mod_read_saturation: inconsistent NDIM1.')
+      end if
+      !
+      if (ios /= 0) then
+        exit
+      end if
+      !
+      lupdatep = .false.
+      if (kper_in <= this%kper_end) then
+        iper = this%kper_map(kper_in)
+        if (iper > 0) then
+          lupdatep = .true.
+          read(unit=iu,iostat=ios, pos=p) txt1id1_in; p = p + 16
+          read(unit=iu,iostat=ios, pos=p) txt2id1_in; p = p + 16
+          read(unit=iu,iostat=ios, pos=p) txt1id2_in; p = p + 16
+          read(unit=iu,iostat=ios, pos=p) txt2id2_in; p = p + 16
+          read(unit=iu,iostat=ios, pos=p) ndat_in; p = p + I4B
+          if (allocated(auxtxt_in)) deallocate(auxtxt_in)
+          allocate(auxtxt_in(ndat_in-1))
+          read(unit=iu,iostat=ios, pos=p) (auxtxt_in(n),n=1,ndat_in-1)
+          p = p + 16 * (ndat_in - 1)
+          read(unit=iu,iostat=ios, pos=p) nlist_in; p = p + I4B
+          if (allocated(id1_in)) deallocate(id1_in)
+          if (allocated(id2_in)) deallocate(id2_in)
+          if (allocated(data2d_in)) deallocate(data2d_in)
+          allocate(id1_in(nlist_in), id2_in(nlist_in), data2d_in(ndat_in,nlist_in))
+          read(unit=iu,iostat=ios, pos=p) ((id1_in(n),id2_in(n),(data2d_in(i,n),i=1,ndat_in)),n=1,nlist_in)
+          p = p + (I4B + I4B + R8B * ndat_in) * nlist_in
+          !
+          if (ios /= 0) then
+            call errmsg('mf6_post_mod_read_saturation: could not read data.')
+          end if
+          this%kper_map(kper_in) = -abs(this%kper_map(kper_in))
+          !
+          do n = 1, this%nodes
+            sat(iper,n) = data2d_in(2,n) ! get the second column corresponding to aux
+          end do
+        end if
+      end if
+      if (.not.lupdatep) then
+        p = p + 4*16
+        read(unit=iu,iostat=ios, pos=p) ndat_in
+        p = p + I4B + 16 * (ndat_in - 1)
+        read(unit=iu,iostat=ios, pos=p) nlist_in
+        p = p + I4B + (I4B + I4B + R8B * ndat_in) * nlist_in
+      end if
+    end do
+    close(iu)
+    !
+    ! check if all stress periods are read
+    if (maxval(this%kper_map) > 0) then
+      call errmsg('mf6_post_mod_read_saturation: data not read for all stress periods.')
+    end if
+    this%kper_map = abs(this%kper_map)
+    !
+    return
+  end subroutine mf6_post_mod_read_saturation
+  
   subroutine mf6_post_mod_read_ulasav_selection(this, nodes_read, heads_read)
 ! ******************************************************************************
     ! -- arguments
     class(tPostMod) :: this
-    integer(I4B), dimension(:), intent(in) :: nodes_read
+    integer(I4B), dimension(:,:), intent(in) :: nodes_read
     real(R8B), dimension(:,:), intent(out) :: heads_read
     ! --- local
     ! mf6 header:
@@ -303,11 +431,20 @@ module mf6_post_module
     real(R8B) :: pertim_in, totim_in
     !
     integer(I8B), parameter :: NBHDR = I4B + I4B + R8B + R8B + 16 + I4B + I4B + I4B
-    integer(I4B) :: iu, ios, i, iper, kper_beg, kper_end, nod
+    integer(I4B) :: iu, ios, i, iper, jper, kper_beg, kper_end, nod, nnod
     integer(I8B) :: p, p_nod
     !
     real(R8B) :: r8v
+    !
+    logical :: lnodvar
 ! ------------------------------------------------------------------------------
+    !
+    nnod = size(nodes_read, 2)
+    if (size(nodes_read, 1) > 1) then
+      lnodvar = .true.
+    else
+      lnodvar = .false.
+    end if
     !
     call this%set_kper_map()
     !
@@ -329,8 +466,14 @@ module mf6_post_module
       if (kper_in <= this%kper_end) then
         iper = this%kper_map(kper_in)
         if (iper > 0) then
-          do i = 1, size(nodes_read)
-            nod = nodes_read(i)
+          if (lnodvar) then
+            jper = iper
+          else
+            jper = 1
+          end if
+          !
+          do i = 1, nnod
+            nod = nodes_read(jper, i)
             p_nod = p + (nod-1)*R8B
             read(unit=iu, iostat=ios, pos=p_nod) r8v
             heads_read(iper,i) = r8v

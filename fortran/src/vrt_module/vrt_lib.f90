@@ -125,6 +125,8 @@ module vrt_module
     integer(I4B), dimension(:), allocatable :: iconst
     real(R4B), dimension(:), allocatable :: r4const
     type(tVrt), dimension(:), pointer :: vrta => null()
+    real(R8B), dimension(:), allocatable :: mult_fac
+    real(R8B), dimension(:), allocatable :: add_val
   contains
     procedure :: init           => tVrtArray_init
     procedure :: clean          => tVrtArray_clean
@@ -149,13 +151,16 @@ module vrt_module
     class(tVrtArray) :: this
     character(len=*), optional :: id_in
     ! -- local
+    character(len=MXSLEN), parameter :: mf_key = 'mult_factor'
+    character(len=MXSLEN), parameter :: av_key = 'add_value'
+    !
     type(tVrt), pointer :: vrt => null()
     type(tCSV) :: csv
     integer(I4B), parameter :: MAXLINE = 1000
     character(len=MXSLEN), dimension(MAXLINE) :: sa
     character(len=MXSLEN) :: s, f, f_vrt, id
     character(len=1) :: slash
-    logical :: flag
+    logical :: flag, lmf, lav
     integer(I4B) :: ir, iu, ios, ilay
     integer(I4B), dimension(:), allocatable :: layers
     real(R4B) :: r4const
@@ -176,14 +181,25 @@ module vrt_module
     call csv%read(f)
     call csv%get_column(key='layer', i4a=layers)
     this%n = maxval(layers)
-    
+    !
     call this%clean()
-    
+    !
     allocate(this%active(this%n)); this%active = .false.
     allocate(this%vrta(this%n))
     allocate(this%iconst(this%n)); this%iconst = 0
     allocate(this%r4const(this%n)); this%r4const = R4ZERO
-    
+    !
+    if (csv%exist_col(mf_key)) then
+      call csv%get_column(key=mf_key, r8a=this%mult_fac, mvr8=R8ONE)
+    else
+      allocate(this%mult_fac(this%n)); this%mult_fac = R8ONE
+    end if
+    if (csv%exist_col(av_key)) then
+      call csv%get_column(key=av_key, r8a=this%add_val, mvr8=R8ZERO)
+    else
+      allocate(this%add_val(this%n)); this%add_val = R8ZERO
+    end if
+    !
     do ir = 1, this%n
       ilay = layers(ir)
       call csv%get_val(ir=ir, ic=csv%get_col('file'), cv=f_vrt)
@@ -229,9 +245,11 @@ module vrt_module
       end do
       deallocate(this%vrta); this%vrta => null()
     end if
-    if (allocated(this%active)) deallocate(this%active)
-    if (allocated(this%iconst)) deallocate(this%iconst)
-    if (allocated(this%r4const)) deallocate(this%r4const)
+    if (allocated(this%active))   deallocate(this%active)
+    if (allocated(this%iconst))   deallocate(this%iconst)
+    if (allocated(this%r4const))  deallocate(this%r4const)
+    if (allocated(this%mult_fac)) deallocate(this%mult_fac)
+    if (allocated(this%add_val))  deallocate(this%add_val)
     !
     return
   end subroutine tVrtArray_clean
@@ -1315,7 +1333,7 @@ module vrt_module
   
   subroutine tVrt_read_extent(this, bbx, xi1, xi2, xi4, xi8, xr4, xr8, &
     mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, i_uscl, i_dscl, xtile, &
-    f_bin, clean_tile, mfr8)
+    f_bin, clean_tile, mfr8, avr8)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1347,8 +1365,9 @@ module vrt_module
     !
     logical, intent(in), optional :: clean_tile
     !
-    real(R8B), optional :: mfr8
-    
+    real(R8B), optional :: mfr8 ! multiplication factor
+    real(R8B), optional :: avr8 ! addition value
+    !
     ! -- local
     type(tVrtTile), pointer :: tile => null()
     type(tHdr), pointer :: hdrg => null(), hdrg_merge => null()
@@ -1361,7 +1380,7 @@ module vrt_module
     integer(I4B), dimension(:,:), allocatable :: xtile_loc, mxtile_loc
     real(R8B), dimension(:), allocatable :: act_tile_cs
     real(R8B) :: x, y
-    real(R8B) :: mfr8_loc
+    real(R8B) :: mfr8_loc, avr8_loc
     !
     integer(I4B) :: i4v
     real(R4B)    :: r4v
@@ -1378,6 +1397,11 @@ module vrt_module
       mfr8_loc = mfr8
     else
       mfr8_loc = R8ONE
+    end if
+    if (present(avr8)) then
+      avr8_loc = avr8
+    else
+      avr8_loc = R8ZERO
     end if
     !
     if (present(clean_tile)) then
@@ -1458,6 +1482,7 @@ module vrt_module
             if (xmi4(jc,jr) == mvi4) then
               if (i4v /= mvi4) then
                 i4v = i4v * int(mfr8_loc, I4B)
+                i4v = i4v + int(avr8_loc, I4B)
               end if
               xmi4(jc,jr) = i4v
               mxtile_loc(jc,jr) = itile
@@ -1492,6 +1517,7 @@ module vrt_module
             if (xmr4(jc,jr) == mvr4) then
               if (r4v /= mvr4) then
                 r4v = r4v * real(mfr8_loc, R4B)
+                r4v = r4v + real(avr8_loc, R4B)
               end if
               xmr4(jc,jr) = r4v
               mxtile_loc(jc,jr) = itile
@@ -1531,6 +1557,7 @@ module vrt_module
             if (xmr8(jc,jr) == mvr8) then
               if (r8v /= mvr8) then
                 r8v = r8v * mfr8_loc
+                r8v = r8v + avr8_loc
               end if
               xmr8(jc,jr) = r8v
               mxtile_loc(jc,jr) = itile
@@ -1622,7 +1649,7 @@ module vrt_module
     !
     return
   end subroutine tVrt_read_extent
-  
+  !
   subroutine tVrt_get_act_tile(this, bbx, act_tile, act_tile_cs)
 ! ******************************************************************************
 !
@@ -1716,7 +1743,8 @@ module vrt_module
   end subroutine tVrt_buffer_data
     
   subroutine tVrt_read_xy(this, x, y, cs, i1a, i2a, i4a, i8a, r4a, r8a, &
-    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, i_uscl, i_dscl, xtile, f_bin)
+    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8, i_uscl, i_dscl, xtile, f_bin, &
+    mfr8, avr8)
 ! ******************************************************************************
 !
 !    SPECIFICATIONS:
@@ -1748,6 +1776,9 @@ module vrt_module
     integer(I4B), dimension(:), allocatable, intent(inout), optional :: xtile
     character(len=MXSLEN), dimension(:), allocatable, intent(inout), optional :: f_bin
     !
+    real(R8B), intent(in), optional :: mfr8
+    real(R8B), intent(in), optional :: avr8
+    !
     ! -- local
     type(tVrtTile), pointer :: tile => null()
     type(tHdr), pointer :: hdrg => null()
@@ -1761,7 +1792,19 @@ module vrt_module
     integer(I4B) :: np, itile, i, n, ntile_act
     integer(I1B), dimension(:), allocatable :: flg1, flg3
     integer(I1B), dimension(:,:), allocatable :: flg2
+    real(R8B) :: mfr8_loc, avr8_loc
  ! ------------------------------------------------------------------------------
+    !
+    if (present(mfr8)) then
+      mfr8_loc = mfr8
+    else
+      mfr8_loc = R8ONE
+    end if
+    if (present(avr8)) then
+      avr8_loc = avr8
+    else
+      avr8_loc = R8ZERO
+    end if
     !
     if (present(f_bin)) then
       compressed_loc = .true.
@@ -1840,7 +1883,7 @@ module vrt_module
             end if
             if (r4v == mvr4_tile) r4v = mvr4
             if (r4v /= mvr4) then
-              r4a(i) = r4v
+              r4a(i) = r4v * real(mfr8_loc, R4B) + real(avr8_loc, R4B)
             end if
             flg3(i) = 1
           end if
@@ -1858,7 +1901,7 @@ module vrt_module
             end if
             if (r8v == mvr8_tile) r8v = mvr8
             if (r8v /= mvr8) then
-              r8a(i) = r8v
+              r8a(i) = r8v * mfr8_loc + avr8_loc
             end if
             flg3(i) = 1
           end if

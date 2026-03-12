@@ -94,8 +94,7 @@
 				<File RelativePath="..\..\src\multigrid_module\multigrid_module.f90"/>
 			</Filter>
 			<Filter Name="Utility library">
-				<File RelativePath="..\..\src\utils_module\utils_mod.f90">
-				</File>
+				<File RelativePath="..\..\src\utils_module\utils_mod.f90"/>
 			</Filter>
 			<Filter Name="UUID library">
 				<File RelativePath="..\..\src\_third_party\uuid-fortran-1.0.1\uuid_module.f90"/>
@@ -107,7 +106,11 @@
 				<File RelativePath="..\..\src\vtk_module\vtk_lib.f90"/>
 			</Filter>
 			<File RelativePath="..\..\src\quad2d\quad2d.f90"/>
-			<File RelativePath="..\..\src\quad2d\quad2d_module.f90"/>
+			<File RelativePath="..\..\src\quad2d\quad2d_module.f90">
+				<FileConfiguration Name="Debug|x64">
+					<Tool Name="VFFortranCompilerTool" WarnUnusedVariables="true"/>
+				</FileConfiguration>
+			</File>
 		</Filter>
 	</Files>
 	<Globals/>

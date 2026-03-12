@@ -75,7 +75,7 @@ module main_module
   logical :: lrenumber, lwrite, ljoin, lsplit, lremove, lwrite_props
   logical :: loverwrite_props, lwrite_asc, lwrite_bin, luse_uuid, lwrite_disu
   logical, parameter :: LDUM = .true.
-  logical :: write_nod_map, write_chd, write_hiera
+  logical :: write_nod_map, write_chd, write_hiera, filter_sat
   logical :: luse_chaco, lwrite_ximbal
   
   integer(I4B) :: mask_mv, xid_mv
@@ -371,6 +371,7 @@ subroutine quad_settings()
     call ini%get_val(sect, 'tile_nr', i4v=tile_nr, i4v_def=huge(I4ZERO))
     call ini%get_val(sect, 'f_out_vrt_pref', cv=f_vrt)
     call ini%get_val(sect, 'write_nod_map', l4v=write_nod_map, l4v_def=.false.)
+    call ini%get_val(sect, 'filter_sat', l4v=filter_sat, l4v_def=.false.)
     !
     call ini%get_val(sect, 'write_chd', l4v=write_chd, l4v_def=.false.)
     call ini%get_val(sect, 'chd_lid',cv=chd_lid, cv_def='')
@@ -409,6 +410,9 @@ subroutine quad_settings()
     call ini%get_val(sect, 'gid_field',        cv=fields(i_gid),        cv_def='gid')
     call ini%get_val(sect, 'tgt_cs_min_field', cv=fields(i_tgt_cs_min), cv_def='tgt_cs_min')
     call ini%get_val(sect, 'head_field',       cv=fields(i_head))
+    !
+    call ini%get_val(sect, 'filter_sat', l4v=filter_sat, l4v_def=.false.)
+    call ini%get_val(sect, 'budget_field',     cv=fields(i_budget),     cv_def='')
     !
     call ini%get_val(sect, 'kper_beg', i4v=kper_beg, i4v_def=1)
     call ini%get_val(sect, 'kper_end', i4v=kper_end, i4v_def=1)
@@ -4537,10 +4541,11 @@ subroutine quad_init_layer_models()
   type(tLayerModel),  pointer :: lay_mod  => null()
   type(tLayerModels), pointer :: lay_mods => null()
   type(tVrtArray), pointer :: vrta => null()  
-  type(tCSV), pointer :: csv
-  
-  logical :: lfound, lread, lcompress, ldone_zp
+  type(tCSV), pointer :: csv => null()
+  !
+  logical :: lfound, lread, lcompress, ldone_zp, lref
   character(len=MXSLEN) :: laymod_f, laymod_ft, kh_f, kh_ft, s, s1, slc, ext
+  character(len=MXSLEN) :: laymod_ref_f
   character(len=MXSLEN), dimension(:), allocatable :: keys, sa, ids
   integer(I4B), dimension(:), allocatable :: nlay
   integer(I4B) :: ios, n_inp_mod, n_dat, ilm, ju, ir, ierr
@@ -4553,9 +4558,20 @@ subroutine quad_init_layer_models()
   allocate(csv)
   call csv%read(f_lay_mod_csv)
   !
+  if (csv%exist_col('laymod_ref_file')) then
+    lref = .true.
+  else
+    lref = .false.
+  end if
+  !
   call lay_mods%init(f_lay_mod_csv)
   call csv%get_column(key='id', ca=ids)
-  call csv%get_column(key='nlay', i4a=nlay)
+  if (csv%exist_col('nlay')) then
+    call csv%get_column(key='nlay', i4a=nlay)
+  else
+    allocate(nlay(lay_mods%n_inp_mod))
+    nlay = 0
+  end if
   !
   if (len_trim(f_lay_coupling_csv) > 0) then
     call logmsg('Reading coupling file for exchanges...')
@@ -4585,6 +4601,9 @@ subroutine quad_init_layer_models()
     call csv%get_val(ir=ir, ic=csv%get_col('laymod_file_type'), cv=laymod_ft)
     call csv%get_val(ir=ir, ic=csv%get_col('kh_file'), cv=kh_f)
     call csv%get_val(ir=ir, ic=csv%get_col('kh_file_type'), cv=kh_ft)
+    if (lref) then
+      call csv%get_val(ir=ir, ic=csv%get_col('laymod_ref_file'), cv=laymod_ref_f)
+    end if
     !
     laymod_f_type = 0
     select case(laymod_ft)
@@ -4603,9 +4622,21 @@ subroutine quad_init_layer_models()
       if (kh_ft /= 'vrta') then
         call errmsg('File '//trim(kh_f)//' should be of type vrta.')
       end if
-      call lay_mod%init(i, ids(i), nlay(i), laymod_f, laymod_f_type, kh_f)
+      if (lref .and. len_trim(laymod_ref_f) > 0) then
+        call lay_mod%init(idx=i, name=ids(i), nlay=nlay(i), f=laymod_f, &
+          f_type=laymod_f_type, f_kh=kh_f, f_ref=laymod_ref_f)
+      else
+        call lay_mod%init(idx=i, name=ids(i), nlay=nlay(i), f=laymod_f, &
+          f_type=laymod_f_type, f_kh=kh_f)
+      end if
     else
-      call lay_mod%init(i, ids(i), nlay(i), laymod_f, laymod_f_type)
+      if (lref .and. len_trim(laymod_ref_f) > 0) then
+         call lay_mod%init(idx=i, name=ids(i), nlay=nlay(i), f=laymod_f, &
+          f_type=laymod_f_type, f_ref=laymod_ref_f)
+      else
+        call lay_mod%init(idx=i, name=ids(i), nlay=nlay(i), f=laymod_f, &
+          f_type=laymod_f_type)
+      end if
     end if
   end do
   !
@@ -6205,11 +6236,12 @@ subroutine quad_mf6_write_grid(lmerge)
   end if
   if (lmerge) then
     call xq%write_mf6_grid(lid0, lid1, kper_beg, kper_end, budget_flf_layer, &
-      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv, &
-        f_in_csv_merge)
+      tile_nc, tile_nr, f_vrt, write_nod_map, filter_sat, vtk_lid, &
+      f_lay_mod_output_csv, f_in_csv_merge)
   else
     call xq%write_mf6_grid(lid0, lid1, kper_beg, kper_end, budget_flf_layer, &
-      tile_nc, tile_nr, f_vrt, write_nod_map, vtk_lid, f_lay_mod_output_csv)
+      tile_nc, tile_nr, f_vrt, write_nod_map, filter_sat, vtk_lid, &
+      f_lay_mod_output_csv)
   end if
   !
   return
@@ -6224,7 +6256,7 @@ subroutine quad_mf6_write_point()
 ! ------------------------------------------------------------------------------
 
     call xq%write_mf6_point(f_in_point_csv, kper_beg, kper_end, &
-      f_out_point_csv)
+      f_out_point_csv, filter_sat)
 
   return
 end subroutine quad_mf6_write_point

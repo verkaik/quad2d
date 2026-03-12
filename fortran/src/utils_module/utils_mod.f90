@@ -2747,7 +2747,8 @@ module utilsmod
     return
   end subroutine tVal_get_val
   
-  subroutine tVal_get_val_arr(this, ir, i1a, i2a, i4a, i8a, r4a, r8a, ca)
+  subroutine tVal_get_val_arr(this, ir, i1a, i2a, i4a, i8a, r4a, r8a, ca, &
+    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8)
 ! ******************************************************************************  
     ! -- arguments
     class(tVal) :: this
@@ -2760,6 +2761,14 @@ module utilsmod
     real(R4B),        dimension(:), allocatable, intent(inout), optional :: r4a
     real(R8B),        dimension(:), allocatable, intent(inout), optional :: r8a
     character(len=*), dimension(:), allocatable, intent(inout), optional :: ca
+    !
+    integer(I1B), intent(in), optional :: mvi1
+    integer(I2B), intent(in), optional :: mvi2
+    integer(I4B), intent(in), optional :: mvi4
+    integer(I8B), intent(in), optional :: mvi8
+    real(R4B), intent(in), optional    :: mvr4
+    real(R8B), intent(in), optional    :: mvr8
+    !
     ! -- locals
     type(tNum), pointer :: num => null()
     character(len=MXSLEN) :: s
@@ -2771,22 +2780,58 @@ module utilsmod
     !
     n = 0
     if (present(i1a)) then
-      call num%get_val(i1v=i1a(ir), lset=lset); n = n + 1
+      call num%get_val(i1v=i1a(ir), lset=lset, lret=.true.)
+      if ((.not.lset).and.present(mvi1)) then
+        i1a(ir) = mvi1
+      else
+        call num%get_val(i1v=i1a(ir), lset=lset)
+      end if
+      n = n + 1
     end if
     if (present(i2a)) then
-      call num%get_val(i2v=i2a(ir), lset=lset); n = n + 1
+      call num%get_val(i2v=i2a(ir), lset=lset, lret=.true.)
+      if ((.not.lset).and.present(mvi2)) then
+        i2a(ir) = mvi2
+      else
+        call num%get_val(i2v=i2a(ir), lset=lset)
+      end if
+      n = n + 1
     end if
     if (present(i4a)) then
-      call num%get_val(i4v=i4a(ir), lset=lset); n = n + 1
+      call num%get_val(i4v=i4a(ir), lset=lset, lret=.true.)
+      if ((.not.lset).and.present(mvi4)) then
+        i4a(ir) = mvi4
+      else    
+        call num%get_val(i4v=i4a(ir), lset=lset)
+      end if
+      n = n + 1
     end if
     if (present(i8a)) then
-      call num%get_val(i8v=i8a(ir), lset=lset); n = n + 1
+      call num%get_val(i8v=i8a(ir), lset=lset, lret=.true.)
+      if ((.not.lset).and.present(mvi8)) then
+        i8a(ir) = mvi8
+      else
+        call num%get_val(i8v=i8a(ir), lset=lset)
+      end if
+      n = n + 1
     end if
     if (present(r4a)) then
-      call num%get_val(r4v=r4a(ir), lset=lset); n = n + 1
+      call num%get_val(r4v=r4a(ir), lset=lset, lret=.true.)
+      if ((.not.lset).and.present(mvr4)) then
+        r4a(ir) = mvr4
+      else
+        call num%get_val(r4v=r4a(ir), lset=lset)
+      end if
+      n = n + 1
     end if
     if (present(r8a)) then
-      call num%get_val(r8v=r8a(ir), lset=lset); n = n + 1
+      call num%get_val(r8v=r8a(ir), lset=lset, lret=.true.)
+      if ((.not.lset).and.present(mvr8)) then
+        r8a(ir) = mvr8
+      else
+        call num%get_val(r8v=r8a(ir), lset=lset)
+      end if
+      n = n + 1
     end if
     if (present(ca)) then
       if (.not.allocated(this%s)) then
@@ -3905,7 +3950,8 @@ module utilsmod
     return
   end subroutine tCSV_set_val_by_key
     
-  subroutine tCSV_get_column(this, ic, key, i1a, i2a, i4a, i8a, r4a, r8a, ca)
+  subroutine tCSV_get_column(this, ic, key, i1a, i2a, i4a, i8a, r4a, r8a, ca, &
+    mvi1, mvi2, mvi4, mvi8, mvr4, mvr8)
 ! ******************************************************************************  
     ! -- arguments
     class(tCSV) :: this
@@ -3919,6 +3965,12 @@ module utilsmod
     real(R4B),        dimension(:), allocatable, intent(inout), optional :: r4a
     real(R8B),        dimension(:), allocatable, intent(inout), optional :: r8a
     character(len=*), dimension(:), allocatable, intent(inout), optional :: ca
+    integer(I1B), intent(in), optional :: mvi1
+    integer(I2B), intent(in), optional :: mvi2
+    integer(I4B), intent(in), optional :: mvi4
+    integer(I8B), intent(in), optional :: mvi8
+    real(R4B), intent(in), optional    :: mvr4
+    real(R8B), intent(in), optional    :: mvr8
     !
     ! -- locals
     type(tVal), pointer :: v => null()
@@ -3962,7 +4014,8 @@ module utilsmod
     !
     do ir = 1, nr
       v => this%val(jc,ir)
-      call v%get_val_arr(ir, i1a, i2a, i4a, i8a, r4a, r8a, ca)
+      call v%get_val_arr(ir, i1a, i2a, i4a, i8a, r4a, r8a, ca, &
+        mvi1, mvi2, mvi4, mvi8, mvr4, mvr8)
     end do
     !
     return
@@ -4973,7 +5026,7 @@ module utilsmod
     return
   end subroutine tNum_set_val
   
-  subroutine tNum_get_val(this, i1v, i2v, i4v, i8v, r4v, r8v, l4v, lset)
+  subroutine tNum_get_val(this, i1v, i2v, i4v, i8v, r4v, r8v, l4v, lset, lret)
 ! ******************************************************************************  
     ! -- arguments
     class(tNum) :: this
@@ -4985,9 +5038,16 @@ module utilsmod
     real(R8B),    intent(out), optional :: r8v
     logical,      intent(out), optional :: l4v
     logical, intent(out) :: lset
+    logical, intent(in), optional :: lret
     ! -- locals
-    logical :: flg
+    logical :: flg, lret_loc
 ! ------------------------------------------------------------------------------
+    !
+    if (present(lret)) then
+      lret_loc = lret
+    else
+      lret_loc = .false.
+    end if
     !
     ! check the flag
     lset = .false.
@@ -4999,8 +5059,10 @@ module utilsmod
     if (present(r8v)) lset = this%flg(i_r8)
     if (present(l4v)) lset = this%flg(i_l4)
     !
+    if (lret_loc) then
+      return
+    end if
     if (.not.lset) then
-      !return
       call errmsg('tNum_get_val: data not set.')
     end if
     !
