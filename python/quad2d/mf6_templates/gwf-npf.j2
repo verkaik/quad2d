@@ -14,6 +14,8 @@ begin options
 {%- if xt3doptions is defined %}  xt3d{% if rhs is defined %} rhs{% endif %}
 {% endif %}
 {%- if save_specific_discharge is defined %}  save_specific_discharge
+{% endif %}
+{%- if save_saturation is defined %}  save_saturation
 {% endif -%}
 end options
 
