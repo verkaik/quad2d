@@ -7380,7 +7380,6 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
           end do
           !
           nper = 0
-          x_active = 0
           do kper = kper_beg, kper_end
             nper = nper + 1
             if (lpointinbb) then
@@ -7396,7 +7395,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
                 allocate(sat(1,q%disu%nodes))
                 sat = R8ONE
               end if
-             !
+              !
               mx = 0
               do ix = 1, nx
                 lskip_point = .false.
