@@ -382,7 +382,9 @@ def determine_periods(section, d_mod_ini, d_mod_csv):
     # check if anything is to do for this submodel
     data_found = False
     for iper in dsp_ini.keys():
-         for id in dsp_ini[iper]:
+        if not isinstance(dsp_ini[iper], list):
+            log_error(f'Key period list not found in [{section}].') 
+        for id in dsp_ini[iper]:
              id_csv = get_csv_id(id, d_map)
              if (id_csv in d_mod_csv):
                   data_found = True
