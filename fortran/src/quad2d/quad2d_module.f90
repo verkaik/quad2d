@@ -12821,7 +12821,7 @@ subroutine tQuads_add_lm_intf(this, f_lay_coupling_csv, minkd, f_out_csv)
     end select
     !
     ! set fraction to zero when dist is zero
-    if (.true.) then
+    if (.false.) then
       ncell = 0
       do jl = 1, disu%nlay_act
          mg => disu%grid_mga_nod%get_mg(jl)
